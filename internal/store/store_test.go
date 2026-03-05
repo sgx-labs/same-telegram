@@ -300,6 +300,55 @@ func TestCLIBinaryForBackend(t *testing.T) {
 	}
 }
 
+func TestIncrementAndGetMessageCount(t *testing.T) {
+	s := testStore(t)
+
+	// Initial count should be 0
+	count, err := s.GetMessageCount(12345)
+	if err != nil {
+		t.Fatalf("GetMessageCount: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("Initial count = %d, want 0", count)
+	}
+
+	// Increment once
+	count, err = s.IncrementMessageCount(12345)
+	if err != nil {
+		t.Fatalf("IncrementMessageCount: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("After 1 increment, count = %d, want 1", count)
+	}
+
+	// Increment again
+	count, err = s.IncrementMessageCount(12345)
+	if err != nil {
+		t.Fatalf("IncrementMessageCount: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("After 2 increments, count = %d, want 2", count)
+	}
+
+	// Different user should have independent count
+	count, err = s.IncrementMessageCount(99999)
+	if err != nil {
+		t.Fatalf("IncrementMessageCount (other user): %v", err)
+	}
+	if count != 1 {
+		t.Errorf("Other user count = %d, want 1", count)
+	}
+
+	// Original user should still be 2
+	count, err = s.GetMessageCount(12345)
+	if err != nil {
+		t.Fatalf("GetMessageCount: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("Original user count = %d, want 2", count)
+	}
+}
+
 func TestNewCreatesDir(t *testing.T) {
 	tmpDir := t.TempDir()
 	origHome := os.Getenv("HOME")

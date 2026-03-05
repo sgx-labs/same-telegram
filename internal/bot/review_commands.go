@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sgx-labs/same-telegram/internal/audit"
 	"github.com/sgx-labs/same-telegram/internal/msgbox"
 )
 
@@ -186,6 +187,7 @@ func cmdRejectReview(arg string) (string, error) {
 }
 
 // moveReview moves a pending review file to the specified target subdirectory.
+// It writes an audit log entry BEFORE performing the move for crash atomicity.
 func moveReview(arg, action string) (string, error) {
 	files, err := listPendingReviews()
 	if err != nil {
@@ -205,6 +207,9 @@ func moveReview(arg, action string) (string, error) {
 		return "", fmt.Errorf("create %s dir: %w", action, err)
 	}
 
+	// Write audit log BEFORE performing any mutation (crash atomicity)
+	audit.LogReviewAction(action, f.Name, "intent")
+
 	// Append CEO action stamp
 	stamp := fmt.Sprintf("\n\n---\n**CEO Decision:** %s at %s\n",
 		strings.ToUpper(action), time.Now().Format(time.RFC3339))
@@ -216,8 +221,11 @@ func moveReview(arg, action string) (string, error) {
 
 	dst := filepath.Join(targetDir, f.Name)
 	if err := os.Rename(f.FullPath, dst); err != nil {
+		audit.LogReviewAction(action, f.Name, "rename_failed: "+err.Error())
 		return "", fmt.Errorf("move file: %w", err)
 	}
+
+	audit.LogReviewAction(action, f.Name, "ok")
 
 	label := "Approved"
 	if action == "rejected" {

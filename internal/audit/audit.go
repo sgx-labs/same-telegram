@@ -44,6 +44,40 @@ func truncate(s string, maxLen int) string {
 	return s[:maxLen]
 }
 
+// reviewAuditPath returns the path to the review audit log.
+func reviewAuditPath() string {
+	home, _ := os.UserHomeDir()
+	dir := filepath.Join(home, "Projects", "same-company", "company-hq", "reviews")
+	// Allow override via environment variable
+	if hq := os.Getenv("SAME_COMPANY_HQ"); hq != "" {
+		dir = filepath.Join(hq, "reviews")
+	}
+	return filepath.Join(dir, "audit.log")
+}
+
+// LogReviewAction writes an append-only audit line for review approve/reject actions.
+// Format: YYYY-MM-DD HH:MM:SS | ACTION | filename | result
+// Errors are silently ignored to avoid disrupting bot operation.
+func LogReviewAction(action, filename, result string) {
+	path := reviewAuditPath()
+
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return
+	}
+
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	line := fmt.Sprintf("%s | %s | %s | %s\n",
+		time.Now().UTC().Format("2006-01-02 15:04:05"),
+		action, filename, result)
+	f.WriteString(line)
+}
+
 // Log records an audit entry. Errors are silently ignored to avoid
 // disrupting bot operation.
 func (l *Logger) Log(entry Entry) {

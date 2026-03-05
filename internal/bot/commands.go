@@ -113,6 +113,9 @@ func (b *Bot) handleCommand(msg *tgbotapi.Message) {
 		return
 	case "tasks":
 		reply, err = cmdListTasks()
+	case "usage":
+		b.handleUsageCommand(msg)
+		return
 	case "cancel-task":
 		reply, err = cmdCancelTask(args)
 	default:
@@ -183,6 +186,7 @@ func helpText() string {
 /search <query> -- semantic search vault
 /ask <question> -- ask SAME a question
 /stop -- cancel in-flight request
+/usage -- today's AI message count and limit
 /vaults -- list/switch vaults
 /digest -- on-demand daily digest
 /config -- view current settings

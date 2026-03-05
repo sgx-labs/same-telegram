@@ -282,6 +282,12 @@ func (b *Bot) handleAPIAIMessage(msg *tgbotapi.Message) bool {
 	}
 
 	chatID := msg.Chat.ID
+
+	// Check daily usage limit
+	if !b.checkAndIncrementUsage(chatID, msg.From.ID) {
+		return true
+	}
+
 	prompt := msg.Text
 
 	// Get the API key

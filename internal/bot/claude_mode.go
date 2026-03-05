@@ -63,6 +63,10 @@ func (b *Bot) handleClaudeCommand(msg *tgbotapi.Message, args string) {
 // Output is PII-filtered and chunked for Telegram's message size limit.
 // Uses per-user session persistence so conversations feel continuous.
 func (b *Bot) handleClaudeMessage(chatID int64, userID int64, prompt string) {
+	if !b.checkAndIncrementUsage(chatID, userID) {
+		return
+	}
+
 	b.sendMarkdown(chatID, "_Thinking..._")
 
 	opts := exec.ClaudeOptions{

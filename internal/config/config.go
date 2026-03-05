@@ -14,9 +14,15 @@ import (
 // Config holds all same-telegram configuration.
 type Config struct {
 	Bot    BotConfig    `toml:"bot"`
+	AI     AIConfig     `toml:"ai"`
 	Notify NotifyConfig `toml:"notify"`
 	Digest DigestConfig `toml:"digest"`
 	Watch  WatchConfig  `toml:"watch"`
+}
+
+// AIConfig holds AI-related settings.
+type AIConfig struct {
+	DailyLimit int `toml:"daily_limit"` // 0 = unlimited
 }
 
 // BotConfig holds Telegram bot settings.
@@ -62,6 +68,9 @@ type WatchConfig struct {
 // DefaultConfig returns a config with sensible defaults.
 func DefaultConfig() *Config {
 	return &Config{
+		AI: AIConfig{
+			DailyLimit: 100,
+		},
 		Notify: NotifyConfig{
 			SessionEnd: true,
 			Decisions:  true,

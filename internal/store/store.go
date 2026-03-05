@@ -155,6 +155,19 @@ func (s *Store) migrate() error {
 	// Migration: add mode column if it doesn't exist (for existing databases).
 	s.db.Exec(`ALTER TABLE users ADD COLUMN mode TEXT NOT NULL DEFAULT 'cli'`)
 
+	// Migration: usage tracking table.
+	_, err = s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS usage (
+			telegram_user_id INTEGER NOT NULL,
+			date             TEXT NOT NULL,
+			messages_today   INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY (telegram_user_id, date)
+		)
+	`)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -310,6 +323,44 @@ func (s *Store) DecryptKey(encHex string) (string, error) {
 	}
 
 	return string(plaintext), nil
+}
+
+// todayString returns today's date as YYYY-MM-DD in UTC.
+func todayString() string {
+	return time.Now().UTC().Format("2006-01-02")
+}
+
+// IncrementMessageCount increments today's message counter for a user.
+// It automatically resets the count on a new day by using the date as part of the key.
+func (s *Store) IncrementMessageCount(telegramUserID int64) (int, error) {
+	today := todayString()
+	_, err := s.db.Exec(`
+		INSERT INTO usage (telegram_user_id, date, messages_today)
+		VALUES (?, ?, 1)
+		ON CONFLICT(telegram_user_id, date) DO UPDATE SET
+			messages_today = messages_today + 1
+	`, telegramUserID, today)
+	if err != nil {
+		return 0, fmt.Errorf("increment message count: %w", err)
+	}
+
+	return s.GetMessageCount(telegramUserID)
+}
+
+// GetMessageCount returns today's message count for a user.
+func (s *Store) GetMessageCount(telegramUserID int64) (int, error) {
+	today := todayString()
+	var count int
+	err := s.db.QueryRow(
+		`SELECT messages_today FROM usage WHERE telegram_user_id = ? AND date = ?`,
+		telegramUserID, today).Scan(&count)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("get message count: %w", err)
+	}
+	return count, nil
 }
 
 func boolToInt(b bool) int {

@@ -34,6 +34,7 @@ type Bot struct {
 	store      *store.Store
 	onboarding *onboardingState
 	auditLog   *audit.Logger
+	limiter    *rateLimiter
 
 	// inflightMu protects the inflight map.
 	inflightMu sync.Mutex
@@ -79,6 +80,7 @@ func New(cfg *config.Config, logger *log.Logger) (*Bot, error) {
 		onboarding:   newOnboardingState(),
 		inflight:     make(map[int64]inflightEntry),
 		auditLog:     audit.NewLogger(),
+		limiter:      newRateLimiter(),
 	}, nil
 }
 
@@ -108,6 +110,7 @@ func (b *Bot) Run(ctx context.Context) error {
 		tgbotapi.BotCommand{Command: "search", Description: "Search vault"},
 		tgbotapi.BotCommand{Command: "ask", Description: "Ask SAME a question"},
 		tgbotapi.BotCommand{Command: "stop", Description: "Cancel in-flight request"},
+		tgbotapi.BotCommand{Command: "usage", Description: "Today's AI usage"},
 		tgbotapi.BotCommand{Command: "help", Description: "Show all commands"},
 	)
 	if _, err := b.api.Request(commands); err != nil {
@@ -148,7 +151,7 @@ func (b *Bot) SendNotification(n *notify.Notification) {
 		if keyboard != nil {
 			msg.ReplyMarkup = keyboard
 		}
-		if _, err := b.api.Send(msg); err != nil {
+		if _, err := b.sendWithRetry(msg); err != nil {
 			b.logger.Printf("Failed to send notification to %d: %v", userID, err)
 		}
 	}
@@ -252,11 +255,11 @@ func (b *Bot) sendMarkdown(chatID int64, text string) {
 	}
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = "Markdown"
-	if _, err := b.api.Send(msg); err != nil {
+	if _, err := b.sendWithRetry(msg); err != nil {
 		b.logger.Printf("Markdown send failed (chat %d): %v — retrying as plain text", chatID, err)
 		// Retry without markdown if parsing fails
 		msg.ParseMode = ""
-		if _, err2 := b.api.Send(msg); err2 != nil {
+		if _, err2 := b.sendWithRetry(msg); err2 != nil {
 			b.logger.Printf("Plain text send also failed (chat %d): %v", chatID, err2)
 		}
 	}

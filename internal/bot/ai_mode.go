@@ -158,6 +158,10 @@ func (b *Bot) handleAICommand(msg *tgbotapi.Message, args string) {
 // It dispatches based on the user's connection mode: CLI shells out to the local binary,
 // API mode would use an HTTP API client (currently falls back to CLI).
 func (b *Bot) handleAIMessage(chatID int64, userID int64, prompt string) {
+	if !b.checkAndIncrementUsage(chatID, userID) {
+		return
+	}
+
 	backend := b.ai.getBackend(userID)
 	connMode := b.ai.getConnectionMode(userID)
 

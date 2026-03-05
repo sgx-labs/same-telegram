@@ -6,6 +6,7 @@ import (
 	"log"
 	"regexp"
 	"strings"
+	"sync"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
@@ -30,6 +31,11 @@ type Bot struct {
 	replies    *replyTracker
 	store      *store.Store
 	onboarding *onboardingState
+
+	// inflightMu protects the inflight map.
+	inflightMu sync.Mutex
+	// inflight stores cancel functions for in-flight AI/CLI requests, keyed by user ID.
+	inflight map[int64]inflightEntry
 }
 
 // New creates a new Bot instance.
@@ -67,6 +73,7 @@ func New(cfg *config.Config, logger *log.Logger) (*Bot, error) {
 		replies:      newReplyTracker(),
 		store:        userStore,
 		onboarding:   newOnboardingState(),
+		inflight:     make(map[int64]inflightEntry),
 	}, nil
 }
 
@@ -89,6 +96,9 @@ func (b *Bot) Run(ctx context.Context) error {
 		case update := <-updates:
 			if update.Message != nil {
 				b.handleUpdate(update.Message)
+			}
+			if update.EditedMessage != nil {
+				b.handleEditedMessage(update.EditedMessage)
 			}
 			if update.CallbackQuery != nil {
 				b.handleCallback(update.CallbackQuery)
@@ -224,4 +234,3 @@ func (b *Bot) deleteMessage(chatID int64, messageID int) {
 		b.logger.Printf("Failed to delete message %d: %v", messageID, err)
 	}
 }
-

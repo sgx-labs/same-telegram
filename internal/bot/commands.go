@@ -49,6 +49,9 @@ func (b *Bot) handleCommand(msg *tgbotapi.Message) {
 	case "cancel":
 		b.onboarding.clear(msg.From.ID)
 		reply = "Cancelled."
+	case "stop":
+		b.handleStop(msg)
+		return
 	case "config":
 		reply = cmdConfig(b)
 	case "team":
@@ -127,6 +130,7 @@ func helpText() string {
 /doctor -- run health check
 /search <query> -- semantic search vault
 /ask <question> -- ask SAME a question
+/stop -- cancel in-flight request
 /vaults -- list/switch vaults
 /digest -- on-demand daily digest
 /config -- view current settings

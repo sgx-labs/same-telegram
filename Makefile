@@ -2,7 +2,7 @@ BINARY := same-telegram
 VERSION := 0.1.0
 LDFLAGS := -ldflags "-s -w -X main.version=$(VERSION)"
 
-.PHONY: build clean test install
+.PHONY: build clean test install start stop
 
 build:
 	CGO_ENABLED=1 go build $(LDFLAGS) -o $(BINARY) ./cmd/same-telegram/
@@ -12,6 +12,12 @@ install: build
 
 test:
 	CGO_ENABLED=1 go test ./...
+
+start:
+	@./scripts/start-bot.sh
+
+stop:
+	@./scripts/stop-bot.sh
 
 clean:
 	rm -f $(BINARY)

@@ -43,7 +43,7 @@ func TestEscapeMarkdown(t *testing.T) {
 		{"hello", "hello"},
 		{"hello_world", "hello\\_world"},
 		{"*bold*", "\\*bold\\*"},
-		{"[link]", "\\[link]"},
+		{"[link]", "\\[link\\]"},
 	}
 	for _, tt := range tests {
 		got := escapeMarkdown(tt.input)

@@ -153,22 +153,92 @@ func cmdDoctor() (string, error) {
 	return fmt.Sprintf("*Doctor Report*\n\n```\n%s\n```", out), nil
 }
 
+const maxSearchResults = 5
+const maxSnippetLen = 150
+
 func cmdSearch(query string) (string, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return "Usage: /search <query>", nil
 	}
-	out, err := exec.Search(query)
+	results, err := exec.SearchJSON(query)
 	if err != nil {
-		return "", err
+		// Fallback: if JSON parsing fails, show raw output
+		out, err2 := exec.Search(query)
+		if err2 != nil {
+			return "", err2
+		}
+		if strings.TrimSpace(out) == "" {
+			return fmt.Sprintf("No results found for \"%s\".", escapeMarkdown(query)), nil
+		}
+		if len(out) > 3500 {
+			out = out[:3500] + "\n... (truncated)"
+		}
+		return fmt.Sprintf("*Search: %s*\n\n```\n%s\n```", escapeMarkdown(query), out), nil
 	}
-	if strings.TrimSpace(out) == "" {
-		return fmt.Sprintf("No results for: %s", escapeMarkdown(query)), nil
+	if len(results) == 0 {
+		return fmt.Sprintf("No results found for \"%s\".", escapeMarkdown(query)), nil
 	}
-	if len(out) > 3500 {
-		out = out[:3500] + "\n... (truncated)"
+	return formatSearchResults(query, results), nil
+}
+
+func formatSearchResults(query string, results []exec.SearchResult) string {
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("*Search: %s*\n", escapeMarkdown(query)))
+
+	limit := maxSearchResults
+	if len(results) < limit {
+		limit = len(results)
 	}
-	return fmt.Sprintf("*Search: %s*\n\n```\n%s\n```", escapeMarkdown(query), out), nil
+
+	for i := 0; i < limit; i++ {
+		r := results[i]
+
+		title := r.Title
+		if title == "" {
+			title = pathBaseName(r.Path)
+		}
+
+		snippet := strings.TrimSpace(r.Snippet)
+		if len(snippet) > maxSnippetLen {
+			snippet = snippet[:maxSnippetLen] + "..."
+		}
+
+		b.WriteString(fmt.Sprintf("\n*%d.* *%s*\n", i+1, escapeMarkdown(title)))
+		if r.Path != "" {
+			b.WriteString(fmt.Sprintf("`%s`\n", r.Path))
+		}
+		if snippet != "" {
+			b.WriteString(fmt.Sprintf("_%s_\n", escapeMarkdown(snippet)))
+		}
+
+		// Score and type on one line
+		meta := fmt.Sprintf("Score: %.2f", r.Score)
+		if r.Type != "" {
+			meta += fmt.Sprintf(" | Type: %s", r.Type)
+		}
+		b.WriteString(meta + "\n")
+	}
+
+	if len(results) > limit {
+		b.WriteString(fmt.Sprintf("\n_%d more results not shown._", len(results)-limit))
+	}
+
+	return b.String()
+}
+
+// pathBaseName returns the last component of a path, without extension.
+func pathBaseName(p string) string {
+	// Find last slash
+	i := strings.LastIndex(p, "/")
+	if i >= 0 {
+		p = p[i+1:]
+	}
+	// Strip extension
+	if dot := strings.LastIndex(p, "."); dot > 0 {
+		p = p[:dot]
+	}
+	return p
 }
 
 func cmdAsk(question string) (string, error) {

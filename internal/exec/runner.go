@@ -69,9 +69,27 @@ func GetStatus() (*Status, error) {
 	return &s, nil
 }
 
-// Search runs `same search --json <query>`.
+// SearchResult represents a single result from `same search --json`.
+type SearchResult struct {
+	Title   string  `json:"title"`
+	Path    string  `json:"path"`
+	Snippet string  `json:"snippet"`
+	Score   float64 `json:"score"`
+	Type    string  `json:"type"`
+}
+
+// Search runs `same search --json <query>` and returns raw output.
 func Search(query string) (string, error) {
 	return RunSame("search", "--json", query)
+}
+
+// SearchJSON runs `same search --json <query>` and returns parsed results.
+func SearchJSON(query string) ([]SearchResult, error) {
+	var results []SearchResult
+	if err := RunSameJSON(&results, "search", "--json", query); err != nil {
+		return nil, err
+	}
+	return results, nil
 }
 
 // Ask runs `same ask <question>`.

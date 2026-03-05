@@ -10,6 +10,7 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
+	"github.com/sgx-labs/same-telegram/internal/audit"
 	"github.com/sgx-labs/same-telegram/internal/config"
 	"github.com/sgx-labs/same-telegram/internal/filter"
 	"github.com/sgx-labs/same-telegram/internal/notify"
@@ -32,6 +33,7 @@ type Bot struct {
 	replies    *replyTracker
 	store      *store.Store
 	onboarding *onboardingState
+	auditLog   *audit.Logger
 
 	// inflightMu protects the inflight map.
 	inflightMu sync.Mutex
@@ -51,10 +53,10 @@ func New(cfg *config.Config, logger *log.Logger) (*Bot, error) {
 		allowed[id] = true
 	}
 
-	// Open user store (encryption key from config, fallback to a default)
-	encKey := cfg.Bot.EncryptionKey
-	if encKey == "" {
-		encKey = "same-telegram-default-key"
+	// Open user store (encryption key from config, or auto-generated)
+	encKey, err := config.LoadOrGenerateEncryptionKey(cfg.Bot.EncryptionKey)
+	if err != nil {
+		return nil, fmt.Errorf("resolve encryption key: %w", err)
 	}
 	userStore, err := store.New(encKey)
 	if err != nil {
@@ -76,6 +78,7 @@ func New(cfg *config.Config, logger *log.Logger) (*Bot, error) {
 		store:        userStore,
 		onboarding:   newOnboardingState(),
 		inflight:     make(map[int64]inflightEntry),
+		auditLog:     audit.NewLogger(),
 	}, nil
 }
 

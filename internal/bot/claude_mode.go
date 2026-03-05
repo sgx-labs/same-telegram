@@ -7,6 +7,7 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
+	"github.com/sgx-labs/same-telegram/internal/audit"
 	"github.com/sgx-labs/same-telegram/internal/exec"
 )
 
@@ -64,7 +65,9 @@ func (b *Bot) handleClaudeCommand(msg *tgbotapi.Message, args string) {
 func (b *Bot) handleClaudeMessage(chatID int64, userID int64, prompt string) {
 	b.sendMarkdown(chatID, "_Thinking..._")
 
-	opts := exec.ClaudeOptions{}
+	opts := exec.ClaudeOptions{
+		DangerousPermissions: b.cfg.Bot.DangerousPermissions,
+	}
 
 	// Resume existing session if available
 	if sid := b.sessions.Get(userID); sid != "" {
@@ -79,6 +82,15 @@ func (b *Bot) handleClaudeMessage(chatID int64, userID int64, prompt string) {
 		b.sendMarkdown(chatID, fmt.Sprintf("Claude error: %s", escapeMarkdown(errMsg)))
 		return
 	}
+
+	// Audit log the Claude invocation
+	b.auditLog.Log(audit.Entry{
+		UserID:               userID,
+		Prompt:               prompt,
+		Response:             result.Text,
+		SessionID:            result.SessionID,
+		DangerousPermissions: opts.DangerousPermissions,
+	})
 
 	// Store session ID for future messages
 	if result.SessionID != "" {

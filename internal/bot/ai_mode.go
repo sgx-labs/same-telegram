@@ -12,6 +12,7 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
+	"github.com/sgx-labs/same-telegram/internal/audit"
 	sameExec "github.com/sgx-labs/same-telegram/internal/exec"
 )
 
@@ -25,7 +26,7 @@ type aiBackendConfig struct {
 
 // aiBackends maps backend names to their CLI configs.
 var aiBackends = map[string]aiBackendConfig{
-	"claude": {Command: "claude", Args: []string{"--print", "--dangerously-skip-permissions", "-p"}},
+	"claude": {Command: "claude", Args: []string{"--print", "-p"}},
 	"codex":  {Command: "codex", Args: []string{"-p"}},
 	"gemini": {Command: "gemini", Args: []string{"-p"}},
 	"ollama": {Command: "ollama", Args: []string{"run", "qwen2.5-coder:7b"}},
@@ -205,7 +206,9 @@ func (b *Bot) handleAIMessageCLI(chatID int64, userID int64, backend, prompt str
 
 	// For Claude backend, use RunClaudeWithSession for MCP + session support
 	if backend == "claude" {
-		opts := sameExec.ClaudeOptions{}
+		opts := sameExec.ClaudeOptions{
+			DangerousPermissions: b.cfg.Bot.DangerousPermissions,
+		}
 		if sid := b.sessions.Get(userID); sid != "" {
 			opts.SessionID = sid
 		}
@@ -216,6 +219,15 @@ func (b *Bot) handleAIMessageCLI(chatID int64, userID int64, backend, prompt str
 			b.sendMarkdown(chatID, fmt.Sprintf("%s error: %s", backend, escapeMarkdown(errMsg)))
 			return
 		}
+
+		// Audit log the Claude invocation
+		b.auditLog.Log(audit.Entry{
+			UserID:               userID,
+			Prompt:               prompt,
+			Response:             result.Text,
+			SessionID:            result.SessionID,
+			DangerousPermissions: opts.DangerousPermissions,
+		})
 
 		// Store session ID for future messages
 		if result.SessionID != "" {

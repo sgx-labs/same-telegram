@@ -113,6 +113,11 @@ type ClaudeOptions struct {
 	// SessionID is a previous session ID to resume.
 	// If non-empty, --resume <id> is passed.
 	SessionID string
+
+	// DangerousPermissions, when true, passes --dangerously-skip-permissions
+	// to the Claude CLI. This gives Claude unrestricted shell access and should
+	// only be enabled when explicitly configured. Default is false.
+	DangerousPermissions bool
 }
 
 // ClaudeResult holds the response from a Claude CLI invocation.
@@ -155,8 +160,13 @@ func RunClaudeWithSession(prompt string, opts ...ClaudeOptions) (*ClaudeResult, 
 		opt = opts[0]
 	}
 
-	// Build args: --print --dangerously-skip-permissions --output-format json
-	args := []string{"--print", "--dangerously-skip-permissions", "--output-format", "json"}
+	// Build args: --print --output-format json
+	args := []string{"--print", "--output-format", "json"}
+
+	// Only pass --dangerously-skip-permissions when explicitly enabled
+	if opt.DangerousPermissions {
+		args = append(args, "--dangerously-skip-permissions")
+	}
 
 	// Add MCP config if specified and file exists
 	mcpPath := opt.MCPConfigPath

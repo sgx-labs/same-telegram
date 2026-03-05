@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -20,10 +21,11 @@ type Config struct {
 
 // BotConfig holds Telegram bot settings.
 type BotConfig struct {
-	Token          string  `toml:"token"`
-	AllowedUserIDs []int64 `toml:"allowed_user_ids"`
-	EncryptionKey  string  `toml:"encryption_key"`
-	OwnerID        int64   `toml:"owner_id"`
+	Token                string  `toml:"token"`
+	AllowedUserIDs       []int64 `toml:"allowed_user_ids"`
+	EncryptionKey        string  `toml:"encryption_key"`
+	OwnerID              int64   `toml:"owner_id"`
+	DangerousPermissions bool    `toml:"dangerous_permissions"`
 }
 
 // EffectiveOwnerID returns the configured owner_id, or falls back to the first
@@ -132,6 +134,52 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// EncryptionKeyPath returns the path to the auto-generated encryption key file.
+func EncryptionKeyPath() string {
+	return filepath.Join(configDir(), "telegram-encryption.key")
+}
+
+// LoadOrGenerateEncryptionKey returns an encryption key for the store.
+// If configKey is non-empty, it is used directly.
+// Otherwise, a key is loaded from ~/.same/telegram-encryption.key.
+// If that file does not exist, a random 32-byte key is generated, saved
+// to that file (mode 0600), and returned.
+func LoadOrGenerateEncryptionKey(configKey string) (string, error) {
+	if configKey != "" {
+		return configKey, nil
+	}
+
+	keyPath := EncryptionKeyPath()
+
+	// Try to load existing key file
+	data, err := os.ReadFile(keyPath)
+	if err == nil {
+		key := strings.TrimSpace(string(data))
+		if key != "" {
+			return key, nil
+		}
+	}
+
+	// Generate a new random key
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generate encryption key: %w", err)
+	}
+	key := hex.EncodeToString(b)
+
+	// Ensure directory exists
+	if err := os.MkdirAll(filepath.Dir(keyPath), 0o755); err != nil {
+		return "", fmt.Errorf("create config dir for encryption key: %w", err)
+	}
+
+	// Write key file with restrictive permissions
+	if err := os.WriteFile(keyPath, []byte(key+"\n"), 0o600); err != nil {
+		return "", fmt.Errorf("save encryption key: %w", err)
+	}
+
+	return key, nil
 }
 
 // generateRandomKey generates a random hex-encoded encryption key.

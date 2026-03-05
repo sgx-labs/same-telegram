@@ -54,6 +54,17 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// Start socket server in background
 	go d.socket.Serve()
 
+	// Start review watcher if enabled
+	if d.cfg.Watch.Enabled {
+		baseDir := CompanyHQDir()
+		extraDirs := make(map[string]ReviewCategory)
+		for path, cat := range d.cfg.Watch.ExtraDirs {
+			extraDirs[path] = ReviewCategory(cat)
+		}
+		rw := NewReviewWatcher(d.bot, d.logger, baseDir, extraDirs)
+		go rw.Watch(ctx)
+	}
+
 	// Run bot polling (blocks until ctx cancelled)
 	err := d.bot.Run(ctx)
 

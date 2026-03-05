@@ -27,4 +27,5 @@ func init() {
 	rootCmd.AddCommand(hookCmd)
 	rootCmd.AddCommand(serveCmd)
 	rootCmd.AddCommand(setupCmd)
+	rootCmd.AddCommand(messageCmd)
 }

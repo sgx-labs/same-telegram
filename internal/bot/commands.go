@@ -18,7 +18,9 @@ func (b *Bot) handleCommand(msg *tgbotapi.Message) {
 	var err error
 
 	switch cmd {
-	case "start", "help":
+	case "start":
+		reply = startText()
+	case "help":
 		reply = helpText()
 	case "status":
 		reply, err = cmdStatus()
@@ -32,31 +34,103 @@ func (b *Bot) handleCommand(msg *tgbotapi.Message) {
 		reply, err = cmdVaults()
 	case "digest":
 		reply, err = cmdDigest()
+	case "claude":
+		b.handleClaudeCommand(msg, args)
+		return
+	case "ai":
+		b.handleAICommand(msg, args)
+		return
+	case "onboard":
+		b.handleOnboardCommand(msg)
+		return
+	case "settings":
+		b.handleSettingsCommand(msg)
+		return
+	case "cancel":
+		b.onboarding.clear(msg.From.ID)
+		reply = "Cancelled."
 	case "config":
 		reply = cmdConfig(b)
+	case "team":
+		reply, err = cmdTeam()
+	case "decisions":
+		text, decisions, derr := cmdDecisions()
+		if derr != nil {
+			reply = fmt.Sprintf("Error: %s", derr)
+		} else {
+			reply = text
+			if len(decisions) > 0 {
+				b.sendMarkdown(msg.Chat.ID, reply)
+				for _, d := range decisions {
+					kb := DecisionKeyboard(d.Filename)
+					kbMsg := tgbotapi.NewMessage(msg.Chat.ID, fmt.Sprintf("Action for: %s", escapeMarkdown(d.Filename)))
+					kbMsg.ParseMode = "Markdown"
+					kbMsg.ReplyMarkup = kb
+					b.api.Send(kbMsg)
+				}
+				return
+			}
+		}
+	case "announce":
+		reply, err = cmdAnnounce(args)
 	default:
 		reply = fmt.Sprintf("Unknown command: /%s\nUse /help for available commands.", cmd)
 	}
 
 	if err != nil {
-		reply = fmt.Sprintf("❌ Error: %s", err)
+		reply = fmt.Sprintf("Error: %s", err)
 	}
 
 	b.sendMarkdown(msg.Chat.ID, reply)
 }
 
+func startText() string {
+	return `Welcome to the *SAME Telegram Bot*!
+
+I'm your remote management companion for SAME (Stateless Agent Memory Engine). From right here in Telegram you can manage your vaults, search your knowledge base, chat with AI, and stay on top of your agent team.
+
+Here's what I can do:
+
+*Get started:*
+/status -- check your vault health
+/search <query> -- find anything in your vault
+/ai on -- start an AI conversation
+/help -- see all available commands
+
+*Stay informed:*
+I'll notify you about session completions, decisions that need your attention, and agent handoffs -- all configurable.
+
+Type /help for the full command list, or just send me a message to get going.`
+}
+
 func helpText() string {
-	return `🤖 *SAME Telegram Bot*
+	return `*SAME Telegram Bot*
+
+*AI Commands:*
+/claude [on|off] -- toggle Claude mode (CLI)
+/ai claude -- use Anthropic Claude (CLI)
+/ai codex -- use OpenAI Codex (CLI)
+/ai gemini -- use Google Gemini (CLI)
+/ai ollama -- use local Ollama model (CLI)
+/ai on -- enable AI mode (default backend)
+/ai off -- disable AI mode
+/onboard -- set up AI backend with API key
+/settings -- manage AI backend, mode, API key
+
+*Team Commands:*
+/team -- agent team status
+/decisions -- list pending decisions
+/announce <msg> -- post CEO announcement
 
 *Management Commands:*
-/status — vault status
-/doctor — run health check
-/search <query> — semantic search vault
-/ask <question> — ask SAME a question
-/vaults — list/switch vaults
-/digest — on-demand daily digest
-/config — view current settings
-/help — this message`
+/status -- vault status
+/doctor -- run health check
+/search <query> -- semantic search vault
+/ask <question> -- ask SAME a question
+/vaults -- list/switch vaults
+/digest -- on-demand daily digest
+/config -- view current settings
+/help -- this message`
 }
 
 func cmdStatus() (string, error) {
@@ -64,7 +138,7 @@ func cmdStatus() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("📊 *Vault Status*\n\n```\n%s\n```", out), nil
+	return fmt.Sprintf("*Vault Status*\n\n```\n%s\n```", out), nil
 }
 
 func cmdDoctor() (string, error) {
@@ -72,7 +146,7 @@ func cmdDoctor() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("🔍 *Doctor Report*\n\n```\n%s\n```", out), nil
+	return fmt.Sprintf("*Doctor Report*\n\n```\n%s\n```", out), nil
 }
 
 func cmdSearch(query string) (string, error) {
@@ -87,11 +161,10 @@ func cmdSearch(query string) (string, error) {
 	if strings.TrimSpace(out) == "" {
 		return fmt.Sprintf("No results for: %s", escapeMarkdown(query)), nil
 	}
-	// Truncate long results for Telegram's 4096 char limit
 	if len(out) > 3500 {
 		out = out[:3500] + "\n... (truncated)"
 	}
-	return fmt.Sprintf("🔎 *Search: %s*\n\n```\n%s\n```", escapeMarkdown(query), out), nil
+	return fmt.Sprintf("*Search: %s*\n\n```\n%s\n```", escapeMarkdown(query), out), nil
 }
 
 func cmdAsk(question string) (string, error) {
@@ -106,19 +179,18 @@ func cmdAsk(question string) (string, error) {
 	if len(out) > 3500 {
 		out = out[:3500] + "\n... (truncated)"
 	}
-	return fmt.Sprintf("💡 *Answer*\n\n%s", escapeMarkdown(out)), nil
+	return fmt.Sprintf("*Answer*\n\n%s", escapeMarkdown(out)), nil
 }
 
 func cmdVaults() (string, error) {
 	out, err := exec.RunSame("vault", "list")
 	if err != nil {
-		// Fallback: try without subcommand
 		out, err = exec.RunSame("status")
 		if err != nil {
 			return "", err
 		}
 	}
-	return fmt.Sprintf("🗄 *Vaults*\n\n```\n%s\n```", out), nil
+	return fmt.Sprintf("*Vaults*\n\n```\n%s\n```", out), nil
 }
 
 func cmdDigest() (string, error) {
@@ -126,20 +198,20 @@ func cmdDigest() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("📊 *On-Demand Digest*\n\n```\n%s\n```", out), nil
+	return fmt.Sprintf("*On-Demand Digest*\n\n```\n%s\n```", out), nil
 }
 
 func cmdConfig(b *Bot) string {
-	return fmt.Sprintf(`⚙️ *Current Configuration*
+	return fmt.Sprintf(`*Current Configuration*
 
 *Notifications:*
-• Session end: %v
-• Decisions: %v
-• Handoffs: %v
+- Session end: %v
+- Decisions: %v
+- Handoffs: %v
 
 *Digest:*
-• Enabled: %v
-• Time: %s
+- Enabled: %v
+- Time: %s
 
 *Allowed users:* %d configured`,
 		b.cfg.Notify.SessionEnd,

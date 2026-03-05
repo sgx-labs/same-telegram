@@ -7,15 +7,17 @@ import (
 
 	"github.com/sgx-labs/same-telegram/internal/bot"
 	"github.com/sgx-labs/same-telegram/internal/config"
+	"github.com/sgx-labs/same-telegram/internal/msgbox"
 	"github.com/sgx-labs/same-telegram/internal/notify"
 )
 
 // Daemon manages the Telegram bot and socket server.
 type Daemon struct {
-	cfg    *config.Config
-	bot    *bot.Bot
-	socket *SocketServer
-	logger *log.Logger
+	cfg     *config.Config
+	bot     *bot.Bot
+	socket  *SocketServer
+	watcher *msgbox.Watcher
+	logger  *log.Logger
 }
 
 // New creates a new Daemon instance.
@@ -32,10 +34,15 @@ func New(cfg *config.Config) (*Daemon, error) {
 		return nil, err
 	}
 
+	watcher := msgbox.NewWatcher(logger, func(msg *msgbox.Message, filename string) {
+		tgBot.SendAgentMessage(msg, filename)
+	})
+
 	d := &Daemon{
-		cfg:    cfg,
-		bot:    tgBot,
-		logger: logger,
+		cfg:     cfg,
+		bot:     tgBot,
+		watcher: watcher,
+		logger:  logger,
 	}
 
 	socket, err := NewSocketServer(logger, d.onNotification)
@@ -53,6 +60,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	// Start socket server in background
 	go d.socket.Serve()
+
+	// Start outbound message watcher in background
+	go d.watcher.Watch(ctx)
 
 	// Run bot polling (blocks until ctx cancelled)
 	err := d.bot.Run(ctx)

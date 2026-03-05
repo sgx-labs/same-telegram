@@ -83,3 +83,19 @@ func Ask(question string) (string, error) {
 func Doctor() (string, error) {
 	return RunSame("doctor")
 }
+
+// RunClaude sends a prompt to the `claude` CLI and returns the response.
+func RunClaude(prompt string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "claude", "--print", "--dangerously-skip-permissions", "-p", prompt)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("claude: %w\nstderr: %s", err, stderr.String())
+	}
+	return stdout.String(), nil
+}

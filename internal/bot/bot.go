@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sync"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
@@ -19,6 +20,11 @@ type Bot struct {
 
 	// allowedUsers is a set of allowed Telegram user IDs for fast lookup.
 	allowedUsers map[int64]bool
+
+	// inflightMu protects the inflight map.
+	inflightMu sync.Mutex
+	// inflight stores cancel functions for in-flight AI/CLI requests, keyed by user ID.
+	inflight map[int64]inflightEntry
 }
 
 // New creates a new Bot instance.
@@ -40,6 +46,7 @@ func New(cfg *config.Config, logger *log.Logger) (*Bot, error) {
 		cfg:          cfg,
 		logger:       logger,
 		allowedUsers: allowed,
+		inflight:     make(map[int64]inflightEntry),
 	}, nil
 }
 
@@ -59,6 +66,9 @@ func (b *Bot) Run(ctx context.Context) error {
 		case update := <-updates:
 			if update.Message != nil {
 				b.handleUpdate(update.Message)
+			}
+			if update.EditedMessage != nil {
+				b.handleEditedMessage(update.EditedMessage)
 			}
 			if update.CallbackQuery != nil {
 				b.handleCallback(update.CallbackQuery)

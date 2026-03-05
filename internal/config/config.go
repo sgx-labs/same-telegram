@@ -15,6 +15,7 @@ type Config struct {
 	Bot    BotConfig    `toml:"bot"`
 	Notify NotifyConfig `toml:"notify"`
 	Digest DigestConfig `toml:"digest"`
+	Watch  WatchConfig  `toml:"watch"`
 }
 
 // BotConfig holds Telegram bot settings.
@@ -50,6 +51,12 @@ type DigestConfig struct {
 	Time    string `toml:"time"` // HH:MM in local time
 }
 
+// WatchConfig controls file-watching for company-hq directories.
+type WatchConfig struct {
+	Enabled   bool              `toml:"enabled"`
+	ExtraDirs map[string]string `toml:"extra_dirs"` // path -> category (review/decision/report)
+}
+
 // DefaultConfig returns a config with sensible defaults.
 func DefaultConfig() *Config {
 	return &Config{
@@ -61,6 +68,9 @@ func DefaultConfig() *Config {
 		Digest: DigestConfig{
 			Enabled: true,
 			Time:    "08:00",
+		},
+		Watch: WatchConfig{
+			Enabled: true,
 		},
 	}
 }
@@ -172,6 +182,13 @@ handoffs = true
 # Daily digest of vault activity
 enabled = true
 time = "08:00"  # HH:MM in local time
+
+[watch]
+# Watch company-hq directories for new review/decision/report files
+enabled = true
+# Add extra directories to watch (path = category):
+# [watch.extra_dirs]
+# "/path/to/custom/dir" = "review"
 `, token, userID, userID, encKey)
 
 	path := ConfigPath()

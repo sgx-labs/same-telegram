@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"strings"
 	"time"
 )
 
@@ -108,6 +110,14 @@ func RunClaude(prompt string) (string, error) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "claude", "--print", "--dangerously-skip-permissions", "-p", prompt)
+	// Filter CLAUDECODE env var to prevent nested session error
+	filtered := make([]string, 0, len(os.Environ()))
+	for _, e := range os.Environ() {
+		if name, _, _ := strings.Cut(e, "="); name != "CLAUDECODE" {
+			filtered = append(filtered, e)
+		}
+	}
+	cmd.Env = filtered
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

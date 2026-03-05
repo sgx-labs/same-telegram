@@ -71,11 +71,35 @@ func (b *Bot) handleCommand(msg *tgbotapi.Message) {
 					kbMsg.ReplyMarkup = kb
 					b.api.Send(kbMsg)
 				}
-				return
+			} else {
+				b.sendMarkdown(msg.Chat.ID, reply)
 			}
+			// Also show decisions.md if it exists
+			if msgs, ferr := cmdDecisionsFile(); ferr == nil {
+				for _, m := range msgs {
+					b.sendMarkdown(msg.Chat.ID, m)
+				}
+			}
+			return
 		}
 	case "announce":
 		reply, err = cmdAnnounce(args)
+	case "reviews":
+		reply, err = cmdReviews()
+	case "review":
+		msgs, rerr := cmdReview(args)
+		if rerr != nil {
+			b.sendMarkdown(msg.Chat.ID, fmt.Sprintf("Error: %s", rerr))
+		} else {
+			for _, m := range msgs {
+				b.sendMarkdown(msg.Chat.ID, m)
+			}
+		}
+		return
+	case "approve":
+		reply, err = cmdApproveReview(args)
+	case "reject":
+		reply, err = cmdRejectReview(args)
 	default:
 		reply = fmt.Sprintf("Unknown command: /%s\nUse /help for available commands.", cmd)
 	}
@@ -124,6 +148,12 @@ func helpText() string {
 /team -- agent team status
 /decisions -- list pending decisions
 /announce <msg> -- post CEO announcement
+
+*Review Commands:*
+/reviews -- list pending review docs
+/review <n> -- read a review doc
+/approve <n> -- approve a review doc
+/reject <n> -- reject a review doc
 
 *Management Commands:*
 /status -- vault status

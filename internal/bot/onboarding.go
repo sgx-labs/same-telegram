@@ -204,6 +204,7 @@ func (b *Bot) handleOnboardingInput(msg *tgbotapi.Message) bool {
 	if backend, ok := b.onboarding.getAwaitingKey(userID); ok {
 		// CRITICAL: Delete the message containing the API key immediately
 		b.deleteMessage(chatID, msg.MessageID)
+		b.sendMarkdown(chatID, "API key stored securely. Message deleted for safety.")
 
 		b.onboarding.clearAwaitingKey(userID)
 

@@ -179,7 +179,7 @@ func LoadOrGenerateEncryptionKey(configKey string) (string, error) {
 	key := hex.EncodeToString(b)
 
 	// Ensure directory exists
-	if err := os.MkdirAll(filepath.Dir(keyPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(keyPath), 0o700); err != nil {
 		return "", fmt.Errorf("create config dir for encryption key: %w", err)
 	}
 
@@ -203,7 +203,7 @@ func generateRandomKey() string {
 // GenerateTemplate writes a commented config template to ~/.same/telegram.toml.
 func GenerateTemplate(token string, userID int64) error {
 	dir := configDir()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
 	}
 

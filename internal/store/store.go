@@ -97,7 +97,7 @@ func New(encryptionKey string) (*Store, error) {
 	}
 
 	dir := filepath.Join(home, ".same")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create dir: %w", err)
 	}
 

@@ -108,7 +108,7 @@ func launchBackground() error {
 	// Redirect output to log file
 	logPath := config.LogPath()
 	os.MkdirAll(filepath.Dir(logPath), 0o755)
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return fmt.Errorf("open log: %w", err)
 	}

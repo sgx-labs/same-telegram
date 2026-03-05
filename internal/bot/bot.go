@@ -86,6 +86,31 @@ func (b *Bot) Run(ctx context.Context) error {
 
 	updates := b.api.GetUpdatesChan(u)
 
+	// Register commands with Telegram's "/" menu.
+	commands := tgbotapi.NewSetMyCommands(
+		tgbotapi.BotCommand{Command: "claude", Description: "Toggle Claude mode"},
+		tgbotapi.BotCommand{Command: "ai", Description: "AI backend settings"},
+		tgbotapi.BotCommand{Command: "reset", Description: "Clear conversation session"},
+		tgbotapi.BotCommand{Command: "onboard", Description: "Set up AI backend"},
+		tgbotapi.BotCommand{Command: "settings", Description: "Manage settings"},
+		tgbotapi.BotCommand{Command: "team", Description: "Agent team status"},
+		tgbotapi.BotCommand{Command: "decisions", Description: "Pending decisions"},
+		tgbotapi.BotCommand{Command: "announce", Description: "Post CEO announcement"},
+		tgbotapi.BotCommand{Command: "reviews", Description: "List pending reviews"},
+		tgbotapi.BotCommand{Command: "review", Description: "Read a review doc"},
+		tgbotapi.BotCommand{Command: "approve", Description: "Approve a review"},
+		tgbotapi.BotCommand{Command: "reject", Description: "Reject a review"},
+		tgbotapi.BotCommand{Command: "status", Description: "Vault status"},
+		tgbotapi.BotCommand{Command: "doctor", Description: "Health check"},
+		tgbotapi.BotCommand{Command: "search", Description: "Search vault"},
+		tgbotapi.BotCommand{Command: "ask", Description: "Ask SAME a question"},
+		tgbotapi.BotCommand{Command: "stop", Description: "Cancel in-flight request"},
+		tgbotapi.BotCommand{Command: "help", Description: "Show all commands"},
+	)
+	if _, err := b.api.Request(commands); err != nil {
+		b.logger.Printf("Failed to register bot commands menu: %v", err)
+	}
+
 	for {
 		select {
 		case <-ctx.Done():

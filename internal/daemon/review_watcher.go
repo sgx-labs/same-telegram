@@ -21,6 +21,7 @@ const (
 	CategoryReview   ReviewCategory = "review"
 	CategoryDecision ReviewCategory = "decision"
 	CategoryReport   ReviewCategory = "report"
+	CategoryReply    ReviewCategory = "reply"
 )
 
 // watchedDir pairs a directory path with its category.
@@ -41,14 +42,14 @@ type ReviewWatcher struct {
 	seen map[string]bool
 }
 
-// NewReviewWatcher creates a watcher for review, decision, and report directories.
+// NewReviewWatcher creates a watcher for review, decision, and reply directories.
 // baseDir is the company-hq root (from SAME_COMPANY_HQ env or config).
 // extraDirs allows adding custom watched directories via config.
 func NewReviewWatcher(b *bot.Bot, logger *log.Logger, baseDir string, extraDirs map[string]ReviewCategory) *ReviewWatcher {
 	dirs := []watchedDir{
 		{Path: filepath.Join(baseDir, "reviews", "pending"), Category: CategoryReview},
-		{Path: filepath.Join(baseDir, "decisions", "pending"), Category: CategoryDecision},
-		{Path: filepath.Join(baseDir, "reports", "daily"), Category: CategoryReport},
+		{Path: filepath.Join(baseDir, "decisions"), Category: CategoryDecision},
+		{Path: filepath.Join(baseDir, "messages", "inbound"), Category: CategoryReply},
 	}
 
 	for path, cat := range extraDirs {
@@ -206,14 +207,14 @@ func (rw *ReviewWatcher) processFile(path string, category ReviewCategory) {
 		return
 	}
 	name := filepath.Base(path)
-	if strings.HasPrefix(name, ".") || strings.HasSuffix(name, ".tmp") || strings.HasSuffix(name, "~") {
+	if strings.HasPrefix(name, ".") || strings.HasSuffix(name, ".tmp") || strings.HasSuffix(name, ".swp") || strings.HasSuffix(name, "~") {
 		return
 	}
 
 	summary := extractSummary(path)
 	rw.logger.Printf("review-watcher: new %s file: %s", category, name)
 
-	rw.bot.SendReviewNotification(category.String(), name, summary, category == CategoryDecision)
+	rw.bot.SendReviewNotification(category.String(), name, summary, category == CategoryDecision, category == CategoryReply)
 }
 
 // categoryFor returns the category for a file path, or "" if not in a watched dir.
@@ -266,7 +267,7 @@ func extractSummary(path string) string {
 		return strings.Join(parts, "\n")
 	}
 
-	// No structured headers — return first few lines
+	// No structured headers -- return first few lines
 	lines := strings.SplitN(content, "\n", 6)
 	if len(lines) > 5 {
 		lines = lines[:5]
@@ -287,6 +288,8 @@ func (c ReviewCategory) String() string {
 		return "Decision"
 	case CategoryReport:
 		return "Report"
+	case CategoryReply:
+		return "Reply"
 	default:
 		return string(c)
 	}
@@ -303,7 +306,7 @@ func CompanyHQDir() string {
 }
 
 // FormatReviewNotification builds a Telegram-ready notification string.
-func FormatReviewNotification(category, filename, summary string, isDecision bool) string {
+func FormatReviewNotification(category, filename, summary string, isDecision, isReply bool) string {
 	emoji := "📄"
 	switch strings.ToLower(category) {
 	case "review":
@@ -312,11 +315,32 @@ func FormatReviewNotification(category, filename, summary string, isDecision boo
 		emoji = "⚖️"
 	case "report":
 		emoji = "📊"
+	case "reply":
+		emoji = "💬"
 	}
 
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("%s *New %s*\n\n", emoji, category))
 	b.WriteString(fmt.Sprintf("*File:* `%s`\n\n", filename))
-	b.WriteString(summary)
+
+	// Preview: first 200 chars of summary
+	preview := summary
+	if len(preview) > 200 {
+		preview = preview[:200] + "..."
+	}
+	b.WriteString(preview)
+
+	// Add command instructions
+	b.WriteString("\n\n")
+	switch {
+	case isDecision:
+		b.WriteString("Use /decisions to view")
+	case isReply:
+		b.WriteString("Use /messages to view replies")
+	default:
+		name := strings.TrimSuffix(filename, filepath.Ext(filename))
+		b.WriteString(fmt.Sprintf("Use /review %s to read", name))
+	}
+
 	return b.String()
 }

@@ -102,6 +102,7 @@ func TestReviewCategory_String(t *testing.T) {
 		{CategoryReview, "Review"},
 		{CategoryDecision, "Decision"},
 		{CategoryReport, "Report"},
+		{CategoryReply, "Reply"},
 		{ReviewCategory("custom"), "custom"},
 	}
 
@@ -142,9 +143,10 @@ func TestSeedExisting(t *testing.T) {
 func TestCategoryFor(t *testing.T) {
 	dir := t.TempDir()
 	reviewDir := filepath.Join(dir, "reviews", "pending")
-	decisionDir := filepath.Join(dir, "decisions", "pending")
+	decisionDir := filepath.Join(dir, "decisions")
+	replyDir := filepath.Join(dir, "messages", "inbound")
 
-	for _, d := range []string{reviewDir, decisionDir} {
+	for _, d := range []string{reviewDir, decisionDir, replyDir} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -154,6 +156,7 @@ func TestCategoryFor(t *testing.T) {
 		dirs: []watchedDir{
 			{Path: reviewDir, Category: CategoryReview},
 			{Path: decisionDir, Category: CategoryDecision},
+			{Path: replyDir, Category: CategoryReply},
 		},
 		seen: make(map[string]bool),
 	}
@@ -164,6 +167,7 @@ func TestCategoryFor(t *testing.T) {
 	}{
 		{filepath.Join(reviewDir, "test.md"), CategoryReview},
 		{filepath.Join(decisionDir, "test.md"), CategoryDecision},
+		{filepath.Join(replyDir, "reply.json"), CategoryReply},
 		{filepath.Join(dir, "unknown", "test.md"), ""},
 	}
 
@@ -176,7 +180,7 @@ func TestCategoryFor(t *testing.T) {
 }
 
 func TestFormatReviewNotification(t *testing.T) {
-	text := FormatReviewNotification("Decision", "approve-budget.md", "Summary: Budget approval needed", true)
+	text := FormatReviewNotification("Decision", "approve-budget.md", "Summary: Budget approval needed", true, false)
 
 	if !contains(text, "Decision") {
 		t.Error("expected notification to contain category")
@@ -186,6 +190,25 @@ func TestFormatReviewNotification(t *testing.T) {
 	}
 	if !contains(text, "Budget approval") {
 		t.Error("expected notification to contain summary")
+	}
+	if !contains(text, "/decisions") {
+		t.Error("expected notification to contain /decisions command hint")
+	}
+}
+
+func TestFormatReviewNotification_Review(t *testing.T) {
+	text := FormatReviewNotification("Review", "api-changes.md", "Summary: New API endpoint", false, false)
+
+	if !contains(text, "/review api-changes") {
+		t.Errorf("expected review command hint, got: %s", text)
+	}
+}
+
+func TestFormatReviewNotification_Reply(t *testing.T) {
+	text := FormatReviewNotification("Reply", "reply-20260305.json", "Body: acknowledged", false, true)
+
+	if !contains(text, "/messages") {
+		t.Errorf("expected /messages command hint, got: %s", text)
 	}
 }
 

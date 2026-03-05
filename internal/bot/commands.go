@@ -108,6 +108,13 @@ func (b *Bot) handleCommand(msg *tgbotapi.Message) {
 		reply, err = cmdApproveReview(args)
 	case "reject":
 		reply, err = cmdRejectReview(args)
+	case "task":
+		b.handleTaskCommand(msg, args)
+		return
+	case "tasks":
+		reply, err = cmdListTasks()
+	case "cancel-task":
+		reply, err = cmdCancelTask(args)
 	default:
 		reply = fmt.Sprintf("Unknown command: /%s\nUse /help for available commands.", cmd)
 	}
@@ -163,6 +170,12 @@ func helpText() string {
 /review <n> -- read a review doc
 /approve <n> -- approve a review doc
 /reject <n> -- reject a review doc
+
+*Task Commands:*
+/task <desc> -- create a new task
+/task <n> -- view task details
+/tasks -- list active tasks
+/cancel-task <n> -- cancel a task
 
 *Management Commands:*
 /status -- vault status

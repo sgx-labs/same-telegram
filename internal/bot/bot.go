@@ -4,11 +4,15 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"regexp"
+	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
 	"github.com/sgx-labs/same-telegram/internal/config"
+	"github.com/sgx-labs/same-telegram/internal/filter"
 	"github.com/sgx-labs/same-telegram/internal/notify"
+	"github.com/sgx-labs/same-telegram/internal/store"
 )
 
 // Bot wraps the Telegram bot API with SAME-specific functionality.
@@ -19,6 +23,13 @@ type Bot struct {
 
 	// allowedUsers is a set of allowed Telegram user IDs for fast lookup.
 	allowedUsers map[int64]bool
+
+	ai         *aiState
+	claude     *claudeToggle
+	filter     *filter.Filter
+	replies    *replyTracker
+	store      *store.Store
+	onboarding *onboardingState
 }
 
 // New creates a new Bot instance.
@@ -33,6 +44,16 @@ func New(cfg *config.Config, logger *log.Logger) (*Bot, error) {
 		allowed[id] = true
 	}
 
+	// Open user store (encryption key from config, fallback to a default)
+	encKey := cfg.Bot.EncryptionKey
+	if encKey == "" {
+		encKey = "same-telegram-default-key"
+	}
+	userStore, err := store.New(encKey)
+	if err != nil {
+		return nil, fmt.Errorf("open user store: %w", err)
+	}
+
 	logger.Printf("Authorized on Telegram as @%s", api.Self.UserName)
 
 	return &Bot{
@@ -40,6 +61,12 @@ func New(cfg *config.Config, logger *log.Logger) (*Bot, error) {
 		cfg:          cfg,
 		logger:       logger,
 		allowedUsers: allowed,
+		ai:           newAIState(),
+		claude:       newClaudeToggle(),
+		filter:       filter.New(),
+		replies:      newReplyTracker(),
+		store:        userStore,
+		onboarding:   newOnboardingState(),
 	}, nil
 }
 
@@ -54,6 +81,9 @@ func (b *Bot) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			b.api.StopReceivingUpdates()
+			if b.store != nil {
+				b.store.Close()
+			}
 			return ctx.Err()
 
 		case update := <-updates:
@@ -70,6 +100,7 @@ func (b *Bot) Run(ctx context.Context) error {
 // SendNotification sends a notification message to all allowed users.
 func (b *Bot) SendNotification(n *notify.Notification) {
 	text, keyboard := FormatNotification(n)
+	text = b.filter.Sanitize(text)
 
 	for userID := range b.allowedUsers {
 		msg := tgbotapi.NewMessage(userID, text)
@@ -90,21 +121,50 @@ func (b *Bot) handleUpdate(msg *tgbotapi.Message) {
 		return
 	}
 
+	// Check if this is a reply to an agent message
+	if b.HandleReply(msg) {
+		return
+	}
+
 	if msg.IsCommand() {
 		b.handleCommand(msg)
 		return
 	}
 
-	// Non-command text: treat as a search query
+	// Non-command text
 	if msg.Text != "" {
+		// Check if user is in onboarding flow (awaiting API key or model)
+		if b.handleOnboardingInput(msg) {
+			return
+		}
+
+		// Check API-based AI mode (user configured via onboarding with API key)
+		if b.handleAPIAIMessage(msg) {
+			return
+		}
+
+		// Legacy: CLI-based AI mode, then Claude mode
+		if b.ai.isEnabled(msg.From.ID) {
+			b.handleAIMessage(msg.Chat.ID, msg.From.ID, msg.Text)
+			return
+		}
+		if b.claude.isEnabled(msg.From.ID) {
+			b.handleClaudeMessage(msg.Chat.ID, msg.Text)
+			return
+		}
+
+		// Default: vault search
 		reply, err := cmdSearch(msg.Text)
 		if err != nil {
-			b.sendMarkdown(msg.Chat.ID, fmt.Sprintf("❌ Error: %s", err))
+			b.sendMarkdown(msg.Chat.ID, fmt.Sprintf("Error: %s", err))
 			return
 		}
 		b.sendMarkdown(msg.Chat.ID, reply)
 	}
 }
+
+// validCallbackPattern matches expected callback data formats to prevent injection.
+var validCallbackPattern = regexp.MustCompile(`^[a-zA-Z0-9_:.\-]{1,64}$`)
 
 func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 	if !b.allowedUsers[cb.From.ID] {
@@ -115,11 +175,34 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 	callback := tgbotapi.NewCallback(cb.ID, "")
 	b.api.Request(callback)
 
+	// Validate callback data format before processing
+	if !validCallbackPattern.MatchString(cb.Data) {
+		b.logger.Printf("Rejected invalid callback data from user %d: %q", cb.From.ID, cb.Data)
+		return
+	}
+
 	b.logger.Printf("Callback: %s from user %d", cb.Data, cb.From.ID)
 
-	// TODO: Handle approve/note/vault callbacks
-	response := tgbotapi.NewMessage(cb.Message.Chat.ID, fmt.Sprintf("Action received: %s", cb.Data))
-	b.api.Send(response)
+	// Route callbacks by prefix
+	switch {
+	case strings.HasPrefix(cb.Data, "onboard:"):
+		b.handleOnboardingCallback(cb)
+	case strings.HasPrefix(cb.Data, "mode:"):
+		b.handleModeCallback(cb)
+	case strings.HasPrefix(cb.Data, "settings:"):
+		b.handleSettingsCallback(cb)
+	case strings.HasPrefix(cb.Data, "approve:"), strings.HasPrefix(cb.Data, "reject:"):
+		parts := strings.SplitN(cb.Data, ":", 2)
+		if len(parts) == 2 {
+			action := "approved"
+			if parts[0] == "reject" {
+				action = "rejected"
+			}
+			b.handleDecisionAction(cb.Message.Chat.ID, parts[1], action)
+		}
+	default:
+		b.logger.Printf("Unknown callback data %q from user %d — ignoring", cb.Data, cb.From.ID)
+	}
 }
 
 func (b *Bot) sendMarkdown(chatID int64, text string) {
@@ -133,3 +216,12 @@ func (b *Bot) sendMarkdown(chatID int64, text string) {
 		}
 	}
 }
+
+// deleteMessage deletes a message from the chat (used for API key security).
+func (b *Bot) deleteMessage(chatID int64, messageID int) {
+	del := tgbotapi.NewDeleteMessage(chatID, messageID)
+	if _, err := b.api.Request(del); err != nil {
+		b.logger.Printf("Failed to delete message %d: %v", messageID, err)
+	}
+}
+

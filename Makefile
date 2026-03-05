@@ -5,13 +5,13 @@ LDFLAGS := -ldflags "-s -w -X main.version=$(VERSION)"
 .PHONY: build clean test install
 
 build:
-	go build $(LDFLAGS) -o $(BINARY) ./cmd/same-telegram/
+	CGO_ENABLED=1 go build $(LDFLAGS) -o $(BINARY) ./cmd/same-telegram/
 
 install: build
 	cp $(BINARY) $(GOPATH)/bin/ 2>/dev/null || cp $(BINARY) ~/go/bin/
 
 test:
-	go test ./...
+	CGO_ENABLED=1 go test ./...
 
 clean:
 	rm -f $(BINARY)

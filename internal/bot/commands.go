@@ -90,15 +90,20 @@ func (b *Bot) handleCommand(msg *tgbotapi.Message) {
 	case "reviews":
 		reply, err = cmdReviews()
 	case "review":
-		msgs, rerr := cmdReview(args)
-		if rerr != nil {
-			b.sendMarkdown(msg.Chat.ID, fmt.Sprintf("Error: %s", rerr))
+		if strings.TrimSpace(args) == "" {
+			// No argument — show list (same as /reviews)
+			reply, err = cmdReviews()
 		} else {
-			for _, m := range msgs {
-				b.sendMarkdown(msg.Chat.ID, m)
+			msgs, rerr := cmdReview(args)
+			if rerr != nil {
+				b.sendMarkdown(msg.Chat.ID, fmt.Sprintf("Error: %s", rerr))
+			} else {
+				for _, m := range msgs {
+					b.sendMarkdown(msg.Chat.ID, m)
+				}
 			}
+			return
 		}
-		return
 	case "approve":
 		reply, err = cmdApproveReview(args)
 	case "reject":

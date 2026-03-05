@@ -126,7 +126,7 @@ func cmdReviews() (string, error) {
 		b.WriteString(fmt.Sprintf("*%d.* `%s`\n", i+1, f.Name))
 		b.WriteString(fmt.Sprintf("    %s (%s)\n\n", escapeMarkdown(f.Title), formatSize(f.Size)))
 	}
-	b.WriteString("Use /review <number> to read a file.")
+	b.WriteString("Use /review \\_number\\_ to read a file.")
 	return b.String(), nil
 }
 

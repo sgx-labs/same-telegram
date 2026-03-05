@@ -218,13 +218,18 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 }
 
 func (b *Bot) sendMarkdown(chatID int64, text string) {
+	if text == "" {
+		b.logger.Printf("sendMarkdown called with empty text for chat %d — skipping", chatID)
+		return
+	}
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = "Markdown"
 	if _, err := b.api.Send(msg); err != nil {
+		b.logger.Printf("Markdown send failed (chat %d): %v — retrying as plain text", chatID, err)
 		// Retry without markdown if parsing fails
 		msg.ParseMode = ""
 		if _, err2 := b.api.Send(msg); err2 != nil {
-			b.logger.Printf("Failed to send message: %v", err2)
+			b.logger.Printf("Plain text send also failed (chat %d): %v", chatID, err2)
 		}
 	}
 }

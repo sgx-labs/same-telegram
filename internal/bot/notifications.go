@@ -101,11 +101,14 @@ func formatCustom(n *notify.Notification) string {
 }
 
 // escapeMarkdown escapes Telegram MarkdownV1 special characters.
+// Also escapes ] and \ which can confuse the parser in edge cases.
 func escapeMarkdown(s string) string {
 	replacer := strings.NewReplacer(
+		"\\", "\\\\",
 		"_", "\\_",
 		"*", "\\*",
 		"[", "\\[",
+		"]", "\\]",
 		"`", "\\`",
 	)
 	return replacer.Replace(s)

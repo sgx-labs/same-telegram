@@ -149,48 +149,7 @@ Type /help for the full command list, or just send me a message to get going.`
 }
 
 func helpText() string {
-	return `*SAME Telegram Bot*
-
-*AI Commands:*
-/claude [on|off] -- toggle Claude mode (CLI)
-/ai claude -- use Anthropic Claude (CLI)
-/ai codex -- use OpenAI Codex (CLI)
-/ai gemini -- use Google Gemini (CLI)
-/ai ollama -- use local Ollama model (CLI)
-/ai on -- enable AI mode (default backend)
-/ai off -- disable AI mode
-/reset -- clear session, start fresh conversation
-/onboard -- set up AI backend with API key
-/settings -- manage AI backend, mode, API key
-
-*Team Commands:*
-/team -- agent team status
-/decisions -- list pending decisions
-/announce <msg> -- post CEO announcement
-
-*Review Commands:*
-/reviews -- list pending review docs
-/review <n> -- read a review doc
-/approve <n> -- approve a review doc
-/reject <n> -- reject a review doc
-
-*Task Commands:*
-/task <desc> -- create a new task
-/task <n> -- view task details
-/tasks -- list active tasks
-/cancel-task <n> -- cancel a task
-
-*Management Commands:*
-/status -- vault status
-/doctor -- run health check
-/search <query> -- semantic search vault
-/ask <question> -- ask SAME a question
-/stop -- cancel in-flight request
-/usage -- today's AI message count and limit
-/vaults -- list/switch vaults
-/digest -- on-demand daily digest
-/config -- view current settings
-/help -- this message`
+	return generateHelpText()
 }
 
 func cmdStatus() (string, error) {

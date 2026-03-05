@@ -111,7 +111,8 @@ func TestChunkTextNoNewlines(t *testing.T) {
 
 func TestHelpTextIncludesAICommands(t *testing.T) {
 	text := helpText()
-	for _, cmd := range []string{"/ai claude", "/ai codex", "/ai ollama", "/ai off"} {
+	// The /ai command is listed in the registry; sub-commands are arguments.
+	for _, cmd := range []string{"/ai", "/claude", "/reset", "/onboard"} {
 		if !strings.Contains(text, cmd) {
 			t.Errorf("helpText missing %s", cmd)
 		}

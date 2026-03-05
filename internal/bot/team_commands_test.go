@@ -1,11 +1,13 @@
 package bot
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/sgx-labs/same-telegram/internal/msgbox"
 )
 
 func TestCmdTeam(t *testing.T) {
@@ -16,8 +18,8 @@ func TestCmdTeam(t *testing.T) {
 	if !strings.Contains(text, "Agent Team Status") {
 		t.Errorf("Expected 'Agent Team Status' in output, got: %s", text)
 	}
-	if !strings.Contains(text, "Pending:") {
-		t.Errorf("Expected 'Pending:' in output, got: %s", text)
+	if !strings.Contains(text, "Reviews:") {
+		t.Errorf("Expected 'Reviews:' in output, got: %s", text)
 	}
 }
 
@@ -131,7 +133,7 @@ func TestCmdAnnounceWhitespace(t *testing.T) {
 func TestCmdAnnounceWritesFile(t *testing.T) {
 	// This test writes to the real announcements dir.
 	// Skip if company-hq doesn't exist.
-	dir := filepath.Join(companyHQDir(), "announcements")
+	dir := filepath.Join(msgbox.CompanyHQDir(), "announcements")
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		t.Skip("company-hq/announcements/ not found, skipping write test")
 	}
@@ -262,12 +264,21 @@ func TestDecisionPreviewSkipsHorizontalRules(t *testing.T) {
 }
 
 func TestCmdTeamOutputFormat(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("SAME_COMPANY_HQ", tmpDir)
+
+	// Create review dirs with files
+	os.MkdirAll(filepath.Join(tmpDir, "reviews", "pending"), 0o755)
+	os.MkdirAll(filepath.Join(tmpDir, "reviews", "approved"), 0o755)
+	os.MkdirAll(filepath.Join(tmpDir, "reviews", "rejected"), 0o755)
+	os.MkdirAll(filepath.Join(tmpDir, "decisions"), 0o755)
+	os.MkdirAll(filepath.Join(tmpDir, "tasks"), 0o755)
+
 	text, err := cmdTeam()
 	if err != nil {
 		t.Fatalf("cmdTeam error: %v", err)
 	}
-	// Verify all expected sections are present
-	for _, expected := range []string{"Pending:", "Approved:", "Rejected:", "Announcements:"} {
+	for _, expected := range []string{"Reviews:", "Pending:", "Approved:", "Rejected:", "Decisions:", "Tasks:"} {
 		if !strings.Contains(text, expected) {
 			t.Errorf("Missing %q in team output: %s", expected, text)
 		}
@@ -275,14 +286,11 @@ func TestCmdTeamOutputFormat(t *testing.T) {
 }
 
 func TestCmdAnnounceWritesToTempDir(t *testing.T) {
-	// Use HOME override to write to temp dir instead of real company-hq
 	tmpDir := t.TempDir()
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", origHome)
+	t.Setenv("SAME_COMPANY_HQ", tmpDir)
 
 	// Create the announcements directory
-	annDir := filepath.Join(tmpDir, "Projects", "same-company", "company-hq", "announcements")
+	annDir := filepath.Join(tmpDir, "announcements")
 	os.MkdirAll(annDir, 0o755)
 
 	text, err := cmdAnnounce("Important update for all agents")
@@ -303,7 +311,6 @@ func TestCmdAnnounceWritesToTempDir(t *testing.T) {
 		data, _ := os.ReadFile(filepath.Join(annDir, e.Name()))
 		if strings.Contains(string(data), "Important update for all agents") {
 			found = true
-			// Verify file format
 			if !strings.Contains(string(data), "# CEO Announcement") {
 				t.Error("Announcement file missing header")
 			}
@@ -319,11 +326,9 @@ func TestCmdAnnounceWritesToTempDir(t *testing.T) {
 
 func TestCmdAnnounceMarkdownSpecialChars(t *testing.T) {
 	tmpDir := t.TempDir()
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", origHome)
+	t.Setenv("SAME_COMPANY_HQ", tmpDir)
 
-	annDir := filepath.Join(tmpDir, "Projects", "same-company", "company-hq", "announcements")
+	annDir := filepath.Join(tmpDir, "announcements")
 	os.MkdirAll(annDir, 0o755)
 
 	text, err := cmdAnnounce("Use *bold* and _italic_ in code")
@@ -337,11 +342,9 @@ func TestCmdAnnounceMarkdownSpecialChars(t *testing.T) {
 
 func TestCmdAnnounceFilenameFormat(t *testing.T) {
 	tmpDir := t.TempDir()
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", origHome)
+	t.Setenv("SAME_COMPANY_HQ", tmpDir)
 
-	annDir := filepath.Join(tmpDir, "Projects", "same-company", "company-hq", "announcements")
+	annDir := filepath.Join(tmpDir, "announcements")
 	os.MkdirAll(annDir, 0o755)
 
 	_, err := cmdAnnounce("Test")
@@ -357,7 +360,6 @@ func TestCmdAnnounceFilenameFormat(t *testing.T) {
 	if !strings.HasSuffix(name, ".md") {
 		t.Errorf("Announcement filename should end with .md, got: %s", name)
 	}
-	// Filename should be timestamp-based: YYYY-MM-DD-HHMMSS.md
 	if len(name) < 20 {
 		t.Errorf("Filename too short for timestamp format: %s", name)
 	}
@@ -374,14 +376,11 @@ func TestHelpTextIncludesTeamCommands(t *testing.T) {
 
 func TestCmdDecisionsSkipsGitkeep(t *testing.T) {
 	tmpDir := t.TempDir()
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", origHome)
+	t.Setenv("SAME_COMPANY_HQ", tmpDir)
 
-	pendingDir := filepath.Join(tmpDir, "Projects", "same-company", "company-hq", "decisions", "pending")
+	pendingDir := filepath.Join(tmpDir, "decisions", "pending")
 	os.MkdirAll(pendingDir, 0o755)
 
-	// Only a .gitkeep file
 	os.WriteFile(filepath.Join(pendingDir, ".gitkeep"), []byte(""), 0o644)
 
 	text, decisions, err := cmdDecisions()
@@ -398,16 +397,12 @@ func TestCmdDecisionsSkipsGitkeep(t *testing.T) {
 
 func TestCmdDecisionsSkipsDirectories(t *testing.T) {
 	tmpDir := t.TempDir()
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", origHome)
+	t.Setenv("SAME_COMPANY_HQ", tmpDir)
 
-	pendingDir := filepath.Join(tmpDir, "Projects", "same-company", "company-hq", "decisions", "pending")
+	pendingDir := filepath.Join(tmpDir, "decisions", "pending")
 	os.MkdirAll(pendingDir, 0o755)
 
-	// A subdirectory should be skipped
 	os.Mkdir(filepath.Join(pendingDir, "subdir"), 0o755)
-	// And a real decision file
 	os.WriteFile(filepath.Join(pendingDir, "real.md"), []byte("# Real Decision\nDetails"), 0o644)
 
 	_, decisions, err := cmdDecisions()
@@ -424,11 +419,9 @@ func TestCmdDecisionsSkipsDirectories(t *testing.T) {
 
 func TestCmdDecisionsMultipleFiles(t *testing.T) {
 	tmpDir := t.TempDir()
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", origHome)
+	t.Setenv("SAME_COMPANY_HQ", tmpDir)
 
-	pendingDir := filepath.Join(tmpDir, "Projects", "same-company", "company-hq", "decisions", "pending")
+	pendingDir := filepath.Join(tmpDir, "decisions", "pending")
 	os.MkdirAll(pendingDir, 0o755)
 
 	os.WriteFile(filepath.Join(pendingDir, "a.md"), []byte("# Decision A\nUse Redis"), 0o644)
@@ -449,11 +442,8 @@ func TestCmdDecisionsMultipleFiles(t *testing.T) {
 
 func TestCmdDecisionsNonexistentDir(t *testing.T) {
 	tmpDir := t.TempDir()
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", origHome)
+	t.Setenv("SAME_COMPANY_HQ", tmpDir)
 
-	// Don't create the directory
 	text, decisions, err := cmdDecisions()
 	if err != nil {
 		t.Fatalf("Expected no error for missing dir, got: %v", err)
@@ -466,142 +456,106 @@ func TestCmdDecisionsNonexistentDir(t *testing.T) {
 	}
 }
 
-func TestReadTeamConfig(t *testing.T) {
-	// Uses the real config if it exists
-	cfg, err := readTeamConfig()
-	if err != nil {
-		t.Skip("Team config not available, skipping")
-	}
-	if cfg.Name == "" {
-		t.Error("Expected non-empty team name")
-	}
-	if len(cfg.Members) == 0 {
-		t.Error("Expected at least one member")
-	}
-}
-
-func TestReadTeamConfigFromTempDir(t *testing.T) {
+func TestCmdTeamWithReviewFiles(t *testing.T) {
 	tmpDir := t.TempDir()
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", origHome)
+	t.Setenv("SAME_COMPANY_HQ", tmpDir)
 
-	// Create a mock config
-	cfgDir := filepath.Join(tmpDir, ".claude", "teams", "same-company")
-	os.MkdirAll(cfgDir, 0o755)
+	// Create review dirs with agent-named files
+	pendingDir := filepath.Join(tmpDir, "reviews", "pending")
+	approvedDir := filepath.Join(tmpDir, "reviews", "approved")
+	os.MkdirAll(pendingDir, 0o755)
+	os.MkdirAll(approvedDir, 0o755)
+	os.MkdirAll(filepath.Join(tmpDir, "reviews", "rejected"), 0o755)
+	os.MkdirAll(filepath.Join(tmpDir, "decisions"), 0o755)
+	os.MkdirAll(filepath.Join(tmpDir, "tasks", "queued"), 0o755)
 
-	cfg := teamConfig{
-		Name: "test-team",
-		Members: []teamMember{
-			{Name: "lead", AgentType: "team-lead", Model: "claude-opus-4-6"},
-			{Name: "dev", AgentType: "general-purpose", Model: "claude-sonnet-4-6"},
-		},
-	}
-	data, _ := json.Marshal(cfg)
-	os.WriteFile(filepath.Join(cfgDir, "config.json"), data, 0o644)
-
-	got, err := readTeamConfig()
-	if err != nil {
-		t.Fatalf("readTeamConfig: %v", err)
-	}
-	if got.Name != "test-team" {
-		t.Errorf("Name = %q, want %q", got.Name, "test-team")
-	}
-	if len(got.Members) != 2 {
-		t.Errorf("Members count = %d, want 2", len(got.Members))
-	}
-	if got.Members[0].Name != "lead" {
-		t.Errorf("First member = %q, want %q", got.Members[0].Name, "lead")
-	}
-}
-
-func TestReadTeamConfigMissing(t *testing.T) {
-	tmpDir := t.TempDir()
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", origHome)
-
-	_, err := readTeamConfig()
-	if err == nil {
-		t.Error("Expected error for missing config")
-	}
-}
-
-func TestCmdTeamWithMockConfig(t *testing.T) {
-	tmpDir := t.TempDir()
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", origHome)
-
-	// Create mock team config
-	cfgDir := filepath.Join(tmpDir, ".claude", "teams", "same-company")
-	os.MkdirAll(cfgDir, 0o755)
-	cfg := teamConfig{
-		Name: "my-team",
-		Members: []teamMember{
-			{Name: "alice", AgentType: "team-lead", Model: "claude-opus-4-6"},
-			{Name: "bob", AgentType: "general-purpose", Model: "claude-sonnet-4-6"},
-		},
-	}
-	data, _ := json.Marshal(cfg)
-	os.WriteFile(filepath.Join(cfgDir, "config.json"), data, 0o644)
-
-	// Create company-hq dirs
-	hq := filepath.Join(tmpDir, "Projects", "same-company", "company-hq")
-	os.MkdirAll(filepath.Join(hq, "decisions", "pending"), 0o755)
-	os.MkdirAll(filepath.Join(hq, "decisions", "approved"), 0o755)
-	os.MkdirAll(filepath.Join(hq, "decisions", "rejected"), 0o755)
-	os.MkdirAll(filepath.Join(hq, "announcements"), 0o755)
+	os.WriteFile(filepath.Join(pendingDir, "2026-03-05-backend-dev-review.md"), []byte("review"), 0o644)
+	os.WriteFile(filepath.Join(approvedDir, "2026-03-05-qa-security-audit.md"), []byte("audit"), 0o644)
+	os.WriteFile(filepath.Join(pendingDir, "2026-03-05-growth-team-market.md"), []byte("market"), 0o644)
 
 	text, err := cmdTeam()
 	if err != nil {
 		t.Fatalf("cmdTeam: %v", err)
 	}
 
-	// Should show team info
-	if !strings.Contains(text, "my-team") {
-		t.Errorf("Expected team name in output: %s", text)
+	if !strings.Contains(text, "Pending: 2") {
+		t.Errorf("Expected 2 pending reviews: %s", text)
 	}
-	if !strings.Contains(text, "alice") {
-		t.Errorf("Expected member alice in output: %s", text)
+	if !strings.Contains(text, "Approved: 1") {
+		t.Errorf("Expected 1 approved review: %s", text)
 	}
-	if !strings.Contains(text, "bob") {
-		t.Errorf("Expected member bob in output: %s", text)
+	if !strings.Contains(text, "Active Agents:") {
+		t.Errorf("Expected active agents section: %s", text)
 	}
-	if !strings.Contains(text, "team-lead") {
-		t.Errorf("Expected agent type in output: %s", text)
+	if !strings.Contains(text, "backend-dev") {
+		t.Errorf("Expected backend-dev agent: %s", text)
 	}
-	if !strings.Contains(text, "Members:* 2") {
-		t.Errorf("Expected member count in output: %s", text)
+	if !strings.Contains(text, "qa") {
+		t.Errorf("Expected qa agent: %s", text)
 	}
-	// Should still show decision counts
-	if !strings.Contains(text, "Pending:") {
-		t.Errorf("Expected decision counts in output: %s", text)
+	if !strings.Contains(text, "growth-team") {
+		t.Errorf("Expected growth-team agent: %s", text)
+	}
+	if !strings.Contains(text, "Last activity:") {
+		t.Errorf("Expected last activity: %s", text)
 	}
 }
 
-func TestCmdTeamWithoutConfig(t *testing.T) {
+func TestCmdTeamEmptyHQ(t *testing.T) {
 	tmpDir := t.TempDir()
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", origHome)
-
-	// Create company-hq dirs but no team config
-	hq := filepath.Join(tmpDir, "Projects", "same-company", "company-hq")
-	os.MkdirAll(filepath.Join(hq, "decisions", "pending"), 0o755)
-	os.MkdirAll(filepath.Join(hq, "announcements"), 0o755)
+	t.Setenv("SAME_COMPANY_HQ", tmpDir)
 
 	text, err := cmdTeam()
 	if err != nil {
 		t.Fatalf("cmdTeam: %v", err)
 	}
 
-	if !strings.Contains(text, "not available") {
-		t.Errorf("Expected 'not available' fallback, got: %s", text)
+	if !strings.Contains(text, "Agent Team Status") {
+		t.Errorf("Expected header: %s", text)
 	}
-	// Should still show decision counts
-	if !strings.Contains(text, "Pending:") {
-		t.Errorf("Expected decision counts even without config: %s", text)
+	if !strings.Contains(text, "Pending: 0") {
+		t.Errorf("Expected zero pending: %s", text)
+	}
+	if !strings.Contains(text, "Tasks:") {
+		t.Errorf("Expected tasks section: %s", text)
+	}
+}
+
+func TestDiscoverActiveAgents(t *testing.T) {
+	tmpDir := t.TempDir()
+	pendingDir := filepath.Join(tmpDir, "reviews", "pending")
+	approvedDir := filepath.Join(tmpDir, "reviews", "approved")
+	os.MkdirAll(pendingDir, 0o755)
+	os.MkdirAll(approvedDir, 0o755)
+
+	os.WriteFile(filepath.Join(pendingDir, "2026-03-05-backend-dev-api.md"), []byte("x"), 0o644)
+	os.WriteFile(filepath.Join(approvedDir, "2026-03-04-qa-tests.md"), []byte("x"), 0o644)
+	os.WriteFile(filepath.Join(pendingDir, "2026-03-05-backend-dev-db.md"), []byte("x"), 0o644)
+
+	agents := discoverActiveAgents(tmpDir)
+	if len(agents) != 2 {
+		t.Errorf("Expected 2 unique agents, got %d: %v", len(agents), agents)
+	}
+}
+
+func TestFormatDuration(t *testing.T) {
+	tests := []struct {
+		d    string
+		want string
+	}{
+		{"30s", "just now"},
+		{"5m", "5 min"},
+		{"2h", "2h"},
+		{"2h30m", "2h 30m"},
+		{"25h", "1d 1h"},
+		{"48h", "2d"},
+	}
+	for _, tt := range tests {
+		d, _ := time.ParseDuration(tt.d)
+		got := formatDuration(d)
+		if got != tt.want {
+			t.Errorf("formatDuration(%s) = %q, want %q", tt.d, got, tt.want)
+		}
 	}
 }
 

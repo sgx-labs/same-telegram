@@ -13,11 +13,14 @@ func TestHelpText(t *testing.T) {
 	if text == "" {
 		t.Error("helpText should not be empty")
 	}
-	// Verify all documented commands are present
+	// Verify all registered commands are present in help text
 	commands := []string{
-		"/status", "/doctor", "/search", "/ask", "/vaults",
-		"/digest", "/config", "/help",
-		"/team", "/decisions", "/announce",
+		"/status", "/doctor", "/search", "/ask",
+		"/help", "/team", "/decisions", "/announce",
+		"/claude", "/ai", "/reset", "/onboard", "/settings",
+		"/reviews", "/review", "/approve", "/reject",
+		"/task", "/tasks", "/cancel-task",
+		"/stop", "/usage",
 	}
 	for _, cmd := range commands {
 		if !strings.Contains(text, cmd) {

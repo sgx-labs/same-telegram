@@ -60,19 +60,32 @@ func (b *Bot) handleClaudeCommand(msg *tgbotapi.Message, args string) {
 
 // handleClaudeMessage sends a text message to the claude CLI and returns the response.
 // Output is PII-filtered and chunked for Telegram's message size limit.
-func (b *Bot) handleClaudeMessage(chatID int64, prompt string) {
-	b.sendMarkdown(chatID, "🤖 _Thinking..._")
+// Uses per-user session persistence so conversations feel continuous.
+func (b *Bot) handleClaudeMessage(chatID int64, userID int64, prompt string) {
+	b.sendMarkdown(chatID, "_Thinking..._")
 
-	out, err := exec.RunClaude(prompt)
+	opts := exec.ClaudeOptions{}
+
+	// Resume existing session if available
+	if sid := b.sessions.Get(userID); sid != "" {
+		opts.SessionID = sid
+	}
+
+	result, err := exec.RunClaudeWithSession(prompt, opts)
 	if err != nil {
 		errMsg := err.Error()
 		// Sanitize error output — stderr may contain paths or tokens
 		errMsg = b.filter.Sanitize(errMsg)
-		b.sendMarkdown(chatID, fmt.Sprintf("❌ Claude error: %s", escapeMarkdown(errMsg)))
+		b.sendMarkdown(chatID, fmt.Sprintf("Claude error: %s", escapeMarkdown(errMsg)))
 		return
 	}
 
-	out = strings.TrimSpace(out)
+	// Store session ID for future messages
+	if result.SessionID != "" {
+		b.sessions.Set(userID, result.SessionID)
+	}
+
+	out := strings.TrimSpace(result.Text)
 	if out == "" {
 		b.sendMarkdown(chatID, "_Claude returned an empty response._")
 		return

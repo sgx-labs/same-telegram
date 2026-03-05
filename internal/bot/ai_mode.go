@@ -11,6 +11,8 @@ import (
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+
+	sameExec "github.com/sgx-labs/same-telegram/internal/exec"
 )
 
 const aiTimeout = 60 * time.Second
@@ -201,6 +203,39 @@ func (b *Bot) handleAIMessageCLI(chatID int64, userID int64, backend, prompt str
 
 	b.sendMarkdown(chatID, fmt.Sprintf("_Asking %s..._", backend))
 
+	// For Claude backend, use RunClaudeWithSession for MCP + session support
+	if backend == "claude" {
+		opts := sameExec.ClaudeOptions{}
+		if sid := b.sessions.Get(userID); sid != "" {
+			opts.SessionID = sid
+		}
+
+		result, err := sameExec.RunClaudeWithSession(prompt, opts)
+		if err != nil {
+			errMsg := b.filter.Sanitize(err.Error())
+			b.sendMarkdown(chatID, fmt.Sprintf("%s error: %s", backend, escapeMarkdown(errMsg)))
+			return
+		}
+
+		// Store session ID for future messages
+		if result.SessionID != "" {
+			b.sessions.Set(userID, result.SessionID)
+		}
+
+		out := strings.TrimSpace(result.Text)
+		if out == "" {
+			b.sendMarkdown(chatID, fmt.Sprintf("_%s returned an empty response._", backend))
+			return
+		}
+		out = b.filter.Sanitize(out)
+		chunks := chunkText(out, maxTelegramMessage-100)
+		for _, chunk := range chunks {
+			b.sendMarkdown(chatID, chunk)
+		}
+		return
+	}
+
+	// Non-Claude backends: shell out directly
 	ctx, cancel := context.WithTimeout(context.Background(), aiTimeout)
 	defer cancel()
 

@@ -27,6 +27,7 @@ type Bot struct {
 
 	ai         *aiState
 	claude     *claudeToggle
+	sessions   *sessionStore
 	filter     *filter.Filter
 	replies    *replyTracker
 	store      *store.Store
@@ -69,6 +70,7 @@ func New(cfg *config.Config, logger *log.Logger) (*Bot, error) {
 		allowedUsers: allowed,
 		ai:           newAIState(),
 		claude:       newClaudeToggle(),
+		sessions:     newSessionStore(),
 		filter:       filter.New(),
 		replies:      newReplyTracker(),
 		store:        userStore,
@@ -159,7 +161,7 @@ func (b *Bot) handleUpdate(msg *tgbotapi.Message) {
 			return
 		}
 		if b.claude.isEnabled(msg.From.ID) {
-			b.handleClaudeMessage(msg.Chat.ID, msg.Text)
+			b.handleClaudeMessage(msg.Chat.ID, msg.From.ID, msg.Text)
 			return
 		}
 

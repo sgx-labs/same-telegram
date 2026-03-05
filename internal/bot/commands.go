@@ -46,6 +46,9 @@ func (b *Bot) handleCommand(msg *tgbotapi.Message) {
 	case "settings":
 		b.handleSettingsCommand(msg)
 		return
+	case "reset":
+		b.sessions.Clear(msg.From.ID)
+		reply = "Session cleared. Next message starts a fresh conversation."
 	case "cancel":
 		b.onboarding.clear(msg.From.ID)
 		reply = "Cancelled."
@@ -141,6 +144,7 @@ func helpText() string {
 /ai ollama -- use local Ollama model (CLI)
 /ai on -- enable AI mode (default backend)
 /ai off -- disable AI mode
+/reset -- clear session, start fresh conversation
 /onboard -- set up AI backend with API key
 /settings -- manage AI backend, mode, API key
 

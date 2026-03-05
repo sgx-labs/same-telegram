@@ -1,0 +1,30 @@
+package main
+
+import (
+	"fmt"
+	"os"
+
+	"github.com/spf13/cobra"
+)
+
+var rootCmd = &cobra.Command{
+	Use:   "same-telegram",
+	Short: "Telegram plugin for SAME — remote vault management from your phone",
+	Long: `same-telegram turns Telegram into a remote management GUI for SAME.
+
+It runs as both a Claude Code hook plugin (receives lifecycle events)
+and a Telegram bot daemon (enables vault management from your phone).`,
+}
+
+func main() {
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+
+func init() {
+	rootCmd.AddCommand(hookCmd)
+	rootCmd.AddCommand(serveCmd)
+	rootCmd.AddCommand(setupCmd)
+}

@@ -9,6 +9,9 @@ import (
 	"github.com/sgx-labs/same-telegram/internal/config"
 )
 
+// version is set via ldflags at build time (see Makefile).
+var version = "dev"
+
 var rootCmd = &cobra.Command{
 	Use:   "same-telegram",
 	Short: "Telegram plugin for SAME — remote vault management from your phone",
@@ -26,6 +29,7 @@ func main() {
 }
 
 func init() {
+	rootCmd.Version = version
 	rootCmd.PersistentFlags().StringVar(&config.OverrideConfigPath, "config", "", "Path to config file (default: ~/.same/telegram.toml)")
 	rootCmd.AddCommand(hookCmd)
 	rootCmd.AddCommand(serveCmd)

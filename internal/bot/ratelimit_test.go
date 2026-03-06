@@ -31,14 +31,19 @@ func TestRateLimiterThrottles(t *testing.T) {
 		rl.wait(200)
 	}
 
-	// 4th message should require waiting
+	// 4th message should return immediately (non-blocking) even though bucket is empty
 	start := time.Now()
 	rl.wait(200)
 	elapsed := time.Since(start)
 
-	// Should have waited ~1 second (refill rate is 1/sec)
-	if elapsed < 500*time.Millisecond {
-		t.Errorf("4th message after burst took only %v, expected ~1s wait", elapsed)
+	if elapsed > 100*time.Millisecond {
+		t.Errorf("4th message after burst took %v, expected non-blocking (< 100ms)", elapsed)
+	}
+
+	// Verify the bucket is actually depleted (tokens should be 0)
+	b := rl.getBucket(200)
+	if b.tokens > 0 {
+		t.Errorf("bucket tokens = %v after exceeding burst, expected 0", b.tokens)
 	}
 }
 

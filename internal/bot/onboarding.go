@@ -18,7 +18,15 @@ const BackendOllama = "ollama"
 
 // sendOnboardingPrompt sends the welcome message with backend selection buttons.
 func (b *Bot) sendOnboardingPrompt(chatID int64) {
-	text := "*Welcome to SAME AI Chat*\n\nChoose your AI backend to get started."
+	text := "*Welcome!*\n\n" +
+		"I'm an AI assistant with persistent memory — I remember our conversations across sessions.\n\n" +
+		"To get started, I need to connect to an AI provider. Pick the one you'd like to use:\n\n" +
+		"*Claude* — Anthropic's AI, great for reasoning and writing\n" +
+		"*OpenAI* — GPT-4o, widely used and versatile\n" +
+		"*Gemini* — Google's AI, free credits available\n" +
+		"*Ollama* — Free and local, runs on your own computer\n\n" +
+		"_Already have a Claude or ChatGPT subscription? Run SAME on your own machine for free and use your existing subscription with no extra API costs. See github.com/sgx-labs/same-telegram_\n\n" +
+		"_Self-host SAME to also get vault search, health checks, and knowledge management — free forever._"
 	kb := OnboardingKeyboard()
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = "Markdown"
@@ -61,15 +69,30 @@ func settingsModeKeyboard() tgbotapi.InlineKeyboardMarkup {
 }
 
 // settingsBackendKeyboard returns inline keyboard for switching backend from /settings.
-func settingsBackendKeyboard() tgbotapi.InlineKeyboardMarkup {
+// Backends with stored API keys are marked with a checkmark.
+func (b *Bot) settingsBackendKeyboard(userID int64) tgbotapi.InlineKeyboardMarkup {
+	configured := make(map[string]bool)
+	if backends, err := b.store.GetConfiguredBackends(userID); err == nil {
+		for _, backend := range backends {
+			configured[backend] = true
+		}
+	}
+
+	label := func(name, key string) string {
+		if configured[key] {
+			return name + " \u2705"
+		}
+		return name
+	}
+
 	return tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("Claude", "settings:backend:claude"),
-			tgbotapi.NewInlineKeyboardButtonData("OpenAI", "settings:backend:openai"),
+			tgbotapi.NewInlineKeyboardButtonData(label("Claude", "claude"), "settings:backend:claude"),
+			tgbotapi.NewInlineKeyboardButtonData(label("OpenAI", "openai"), "settings:backend:openai"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("Gemini", "settings:backend:gemini"),
-			tgbotapi.NewInlineKeyboardButtonData("Ollama", "settings:backend:ollama"),
+			tgbotapi.NewInlineKeyboardButtonData(label("Gemini", "gemini"), "settings:backend:gemini"),
+			tgbotapi.NewInlineKeyboardButtonData(label("Ollama", "ollama"), "settings:backend:ollama"),
 		),
 	)
 }
@@ -79,6 +102,13 @@ func settingsBackendKeyboard() tgbotapi.InlineKeyboardMarkup {
 func (b *Bot) handleOnboardingCallback(cb *tgbotapi.CallbackQuery) {
 	backend := strings.TrimPrefix(cb.Data, "onboard:")
 	chatID := cb.Message.Chat.ID
+	userID := cb.From.ID
+
+	// In public mode, skip mode selection — go straight to API key setup
+	if b.isPublicMode() {
+		b.handleAPIKeySetup(chatID, userID, backend)
+		return
+	}
 
 	// Present mode selection
 	text := fmt.Sprintf("*%s selected.*\n\nHow do you want to connect?", backendDisplayName(backend))
@@ -97,6 +127,12 @@ func (b *Bot) handleModeCallback(cb *tgbotapi.CallbackQuery) {
 		return
 	}
 	mode := parts[1]   // "api" or "cli"
+
+	// Defense in depth: CLI mode is not available in public mode.
+	if b.isPublicMode() && mode == "cli" {
+		b.sendMarkdown(cb.Message.Chat.ID, "CLI mode is not available. Use API Key mode instead.")
+		return
+	}
 	backend := parts[2] // "claude", "openai", etc.
 	userID := cb.From.ID
 	chatID := cb.Message.Chat.ID
@@ -106,44 +142,57 @@ func (b *Bot) handleModeCallback(cb *tgbotapi.CallbackQuery) {
 		b.handleCLIModeSetup(chatID, userID, backend)
 
 	case "api":
-		if backend == BackendOllama {
-			// Ollama doesn't use API keys -- save directly with API mode
-			u := &store.User{
-				TelegramUserID: userID,
-				Backend:        "ollama",
-				Model:          ai.DefaultModel(ai.BackendOllama),
-				Mode:           store.ModeAPI,
-				AIEnabled:      true,
-			}
-			if err := b.store.SaveUser(u); err != nil {
-				b.sendMarkdown(chatID, fmt.Sprintf("Failed to save settings: %s", err))
-				return
-			}
-			b.sendMarkdown(chatID, fmt.Sprintf(
-				"*Ollama configured.*\n\nModel: `%s`\nMode: API\nJust type your message to chat.\n\nMake sure Ollama is running locally.",
-				ai.DefaultModel(ai.BackendOllama)))
+		b.handleAPIKeySetup(chatID, userID, backend)
+	}
+}
+
+// handleAPIKeySetup prompts the user for their API key (or configures Ollama directly).
+func (b *Bot) handleAPIKeySetup(chatID int64, userID int64, backend string) {
+	if backend == BackendOllama {
+		// Ollama doesn't use API keys -- save directly with API mode
+		u := &store.User{
+			TelegramUserID: userID,
+			Backend:        "ollama",
+			Model:          ai.DefaultModel(ai.BackendOllama),
+			Mode:           store.ModeAPI,
+			AIEnabled:      true,
+		}
+		if err := b.store.SaveUser(u); err != nil {
+			b.sendMarkdown(chatID, fmt.Sprintf("Failed to save settings: %s", err))
 			return
 		}
-
-		// Ask for API key
-		b.onboarding.setAwaitingKey(userID, backend)
-
-		keyHint := map[string]string{
-			"claude": "sk-ant-api...",
-			"openai": "sk-proj-...",
-			"gemini": "AIzaSy...",
+		ollamaMsg := fmt.Sprintf(
+			"*You're all set!*\n\n"+
+				"*Backend:* Ollama (local)\n"+
+				"*Model:* `%s`\n\n"+
+				"Just type any message and I'll respond.\n\n"+
+				"*Useful commands:*\n"+
+				"/model — change your AI model\n"+
+				"/settings — manage your setup\n"+
+				"/new — start a fresh conversation\n\n"+
+				"_Make sure Ollama is running on your machine._",
+			ai.DefaultModel(ai.BackendOllama))
+		if b.isPublicMode() {
+			ollamaMsg += "\n\n*Want more?*\n" +
+				"Self-host SAME to unlock vault search, health monitoring, and AI-powered answers from your own notes — free forever.\n" +
+				"https://github.com/sgx-labs/same-telegram"
 		}
-		b.sendMarkdown(chatID, fmt.Sprintf(
-			"*%s selected (API Key mode).*\n\nPlease send your API key now.\n\nExpected format: `%s`\n\n_Your message will be deleted immediately after reading for security._\n\nSend /cancel to abort.",
-			backendDisplayName(backend), keyHint[backend]))
+		b.sendMarkdown(chatID, ollamaMsg)
+		return
 	}
+
+	// Ask for API key
+	b.onboarding.setAwaitingKey(userID, backend)
+
+	keyPrompt := apiKeyPrompt(backend)
+	b.sendMarkdown(chatID, keyPrompt)
 }
 
 // handleCLIModeSetup verifies the CLI binary exists on the system and saves the preference.
 // CLI mode is restricted to the bot owner because it executes local commands.
 func (b *Bot) handleCLIModeSetup(chatID int64, userID int64, backend string) {
 	ownerID := b.cfg.Bot.EffectiveOwnerID()
-	if ownerID != 0 && userID != ownerID {
+	if ownerID == 0 || userID != ownerID {
 		b.sendMarkdown(chatID, "CLI mode is only available to the bot owner. Please use API key mode instead.")
 		return
 	}
@@ -221,11 +270,12 @@ func (b *Bot) handleOnboardingInput(msg *tgbotapi.Message) bool {
 			return true
 		}
 
+		defaultModel := ai.DefaultModel(ai.Backend(backend))
 		u := &store.User{
 			TelegramUserID: userID,
 			Backend:        backend,
 			APIKeyEnc:      encKey,
-			Model:          ai.DefaultModel(ai.Backend(backend)),
+			Model:          defaultModel,
 			Mode:           store.ModeAPI,
 			AIEnabled:      true,
 		}
@@ -233,14 +283,32 @@ func (b *Bot) handleOnboardingInput(msg *tgbotapi.Message) bool {
 			b.sendMarkdown(chatID, fmt.Sprintf("Failed to save settings: %s", err))
 			return true
 		}
+		// Also store in the api_keys vault for multi-backend switching.
+		if err := b.store.SaveAPIKey(userID, backend, encKey, defaultModel); err != nil {
+			b.logger.Printf("Warning: failed to save API key to vault: %v", err)
+		}
 
 		// Update in-memory state
 		b.ai.setBackend(userID, backend)
 		b.ai.setConnectionMode(userID, store.ModeAPI)
 
-		b.sendMarkdown(chatID, fmt.Sprintf(
-			"*%s configured.*\n\nAPI key saved (encrypted).\nModel: `%s`\nMode: API Key\nAI mode: *enabled*\n\nJust type your message to chat. Use /settings to manage.",
-			backendDisplayName(backend), ai.DefaultModel(ai.Backend(backend))))
+		completionMsg := fmt.Sprintf(
+			"*You're all set!*\n\n"+
+				"*Backend:* %s\n"+
+				"*Model:* `%s`\n"+
+				"API key saved (encrypted).\n\n"+
+				"Just type any message and I'll respond.\n\n"+
+				"*Useful commands:*\n"+
+				"/model — change your AI model\n"+
+				"/settings — manage your setup\n"+
+				"/new — start a fresh conversation",
+			backendDisplayName(backend), ai.DefaultModel(ai.Backend(backend)))
+		if b.isPublicMode() {
+			completionMsg += "\n\n*Want more?*\n" +
+				"Self-host SAME to unlock vault search, health monitoring, and AI-powered answers from your own notes — free forever.\n" +
+				"https://github.com/sgx-labs/same-telegram"
+		}
+		b.sendMarkdown(chatID, completionMsg)
 		return true
 	}
 
@@ -290,6 +358,18 @@ func (b *Bot) handleAPIAIMessage(msg *tgbotapi.Message) bool {
 	}
 
 	prompt := msg.Text
+	userID := msg.From.ID
+
+	// Truncate prompt to 32KB
+	const maxPromptBytes = 32768
+	if len(prompt) > maxPromptBytes {
+		prompt = prompt[:maxPromptBytes]
+		b.sendMarkdown(chatID, "_Note: your message was truncated to 32KB._")
+	}
+
+	// Send typing indicator
+	typing := tgbotapi.NewChatAction(chatID, tgbotapi.ChatTyping)
+	b.api.Send(typing)
 
 	// Get the API key
 	var apiKey string
@@ -313,13 +393,17 @@ func (b *Bot) handleAPIAIMessage(msg *tgbotapi.Message) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), ai.DefaultTimeout)
 	defer cancel()
 
-	response, err := client.Chat(ctx, prompt, user.Model)
+	// Build prompt with conversation history for multi-turn continuity
+	history := b.conversations.Get(userID)
+	fullPrompt := BuildPromptWithHistory(history, prompt)
+
+	response, err := client.Chat(ctx, fullPrompt, user.Model)
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			b.sendMarkdown(chatID, fmt.Sprintf("%s timed out after 60s.", user.Backend))
+			b.sendMarkdown(chatID, fmt.Sprintf("%s took too long to respond. Try again in a moment.", backendDisplayName(user.Backend)))
 			return true
 		}
-		b.sendMarkdown(chatID, fmt.Sprintf("%s error: %s", user.Backend, escapeMarkdown(err.Error())))
+		b.sendMarkdown(chatID, friendlyAIError(user.Backend, err))
 		return true
 	}
 
@@ -327,6 +411,9 @@ func (b *Bot) handleAPIAIMessage(msg *tgbotapi.Message) bool {
 		b.sendMarkdown(chatID, fmt.Sprintf("_%s returned an empty response._", user.Backend))
 		return true
 	}
+
+	// Store conversation pair for future context
+	b.conversations.Add(userID, prompt, response)
 
 	// PII filter
 	response = b.filter.Sanitize(response)
@@ -371,11 +458,26 @@ func (b *Bot) handleSettingsCommand(msg *tgbotapi.Message) {
 		hasKey = "yes (encrypted)"
 	}
 
-	text := fmt.Sprintf("*AI Settings*\n\n*Backend:* %s\n*Mode:* %s\n*API Key:* %s\n*AI Enabled:* %v\n\nUse the buttons below to change settings, or /onboard to reconfigure.",
+	// Show configured backends from the vault
+	configuredInfo := ""
+	if configured, err := b.store.GetConfiguredBackends(userID); err == nil && len(configured) > 0 {
+		var names []string
+		for _, cb := range configured {
+			name := backendDisplayName(cb)
+			if cb == user.Backend {
+				name += " (active)"
+			}
+			names = append(names, name)
+		}
+		configuredInfo = fmt.Sprintf("\n*Stored keys:* %s", strings.Join(names, ", "))
+	}
+
+	text := fmt.Sprintf("*AI Settings*\n\n*Backend:* %s\n*Mode:* %s\n*API Key:* %s\n*AI Enabled:* %v%s\n\nUse the buttons below to change settings, or /onboard to reconfigure.",
 		escapeMarkdown(user.Backend),
 		escapeMarkdown(mode),
 		hasKey,
-		user.AIEnabled)
+		user.AIEnabled,
+		configuredInfo)
 
 	m := tgbotapi.NewMessage(chatID, text)
 	m.ParseMode = "Markdown"
@@ -414,7 +516,7 @@ func (b *Bot) handleSettingsCallback(cb *tgbotapi.CallbackQuery) {
 			b.api.Send(m)
 		} else if value == "backend" {
 			m := tgbotapi.NewMessage(chatID, "Select AI backend:")
-			m.ReplyMarkup = settingsBackendKeyboard()
+			m.ReplyMarkup = b.settingsBackendKeyboard(userID)
 			b.api.Send(m)
 		}
 
@@ -448,18 +550,149 @@ func (b *Bot) handleSettingsCallback(cb *tgbotapi.CallbackQuery) {
 		}
 
 	case "backend":
-		if err := b.store.UpdateBackend(userID, value); err != nil {
-			b.sendMarkdown(chatID, fmt.Sprintf("Error updating backend: %s", err))
+		// Check if user has a stored key for the new backend
+		encKey, model, err := b.store.GetAPIKey(userID, value)
+		if err != nil {
+			b.sendMarkdown(chatID, fmt.Sprintf("Error checking stored keys: %s", err))
 			return
 		}
-		b.ai.setBackend(userID, value)
-		b.sendMarkdown(chatID, fmt.Sprintf("Backend switched to *%s*.", backendDisplayName(value)))
+
+		if encKey != "" {
+			// Seamless switch: restore key and model from vault
+			if model == "" {
+				model = ai.DefaultModel(ai.Backend(value))
+			}
+			user, _ := b.store.GetUser(userID)
+			mode := store.ModeAPI
+			aiEnabled := true
+			if user != nil {
+				mode = user.Mode
+				aiEnabled = user.AIEnabled
+			}
+			u := &store.User{
+				TelegramUserID: userID,
+				Backend:        value,
+				APIKeyEnc:      encKey,
+				Model:          model,
+				Mode:           mode,
+				AIEnabled:      aiEnabled,
+			}
+			if err := b.store.SaveUser(u); err != nil {
+				b.sendMarkdown(chatID, fmt.Sprintf("Error updating backend: %s", err))
+				return
+			}
+			b.ai.setBackend(userID, value)
+			b.sendMarkdown(chatID, fmt.Sprintf("Backend switched to *%s*. Your stored API key and model (`%s`) have been restored.", backendDisplayName(value), escapeMarkdown(model)))
+		} else if value == BackendOllama {
+			// Ollama doesn't need an API key
+			if err := b.store.UpdateBackend(userID, value); err != nil {
+				b.sendMarkdown(chatID, fmt.Sprintf("Error updating backend: %s", err))
+				return
+			}
+			b.ai.setBackend(userID, value)
+			b.sendMarkdown(chatID, fmt.Sprintf("Backend switched to *%s*.", backendDisplayName(value)))
+		} else {
+			// No stored key — trigger API key setup
+			b.sendMarkdown(chatID, fmt.Sprintf("No API key stored for *%s*. Let's set one up.", backendDisplayName(value)))
+			b.handleAPIKeySetup(chatID, userID, value)
+		}
 	}
 }
 
 // handleOnboardCommand starts the AI onboarding flow.
 func (b *Bot) handleOnboardCommand(msg *tgbotapi.Message) {
 	b.sendOnboardingPrompt(msg.Chat.ID)
+}
+
+// apiKeyPrompt returns a beginner-friendly prompt for the given backend's API key.
+func apiKeyPrompt(backend string) string {
+	switch backend {
+	case "claude":
+		return "*Claude selected*\n\n" +
+			"An API key lets me talk to Claude (Anthropic's AI) on your behalf.\n\n" +
+			"*How to get a key:*\n" +
+			"1. Sign up or log in at https://platform.claude.com/settings/keys\n" +
+			"2. Go to *API Keys*\n" +
+			"3. Click *Create Key*\n" +
+			"4. Copy the key and paste it here\n\n" +
+			"Expected format: `sk-ant-api...`\n\n" +
+			"*Cost:* Anthropic charges per message (~$0.003–0.015 per message depending on model). Most users spend $1–5/month.\n\n" +
+			"Your key is encrypted and stored securely. Your message will be deleted immediately.\n\n" +
+			"Send /cancel to abort."
+	case "openai":
+		return "*OpenAI selected*\n\n" +
+			"An API key lets me talk to GPT (OpenAI's AI) on your behalf.\n\n" +
+			"*How to get a key:*\n" +
+			"1. Sign up or log in at https://platform.openai.com/api-keys\n" +
+			"2. Go to *API Keys*\n" +
+			"3. Click *Create new secret key*\n" +
+			"4. Copy the key and paste it here\n\n" +
+			"Expected format: `sk-proj-...`\n\n" +
+			"*Cost:* OpenAI charges per message (~$0.002–0.01 per message depending on model). Most users spend $1–5/month.\n\n" +
+			"Your key is encrypted and stored securely. Your message will be deleted immediately.\n\n" +
+			"Send /cancel to abort."
+	case "gemini":
+		return "*Gemini selected*\n\n" +
+			"An API key lets me talk to Gemini (Google's AI) on your behalf.\n\n" +
+			"*How to get a key:*\n" +
+			"1. Go to https://aistudio.google.com/apikey\n" +
+			"2. Sign in with your Google account\n" +
+			"3. Click *Create API Key*\n" +
+			"4. Copy the key and paste it here\n\n" +
+			"Expected format: `AIzaSy...`\n\n" +
+			"*Cost:* Google offers free API credits to get started. Paid usage is ~$0.001–0.005 per message.\n\n" +
+			"Your key is encrypted and stored securely. Your message will be deleted immediately.\n\n" +
+			"Send /cancel to abort."
+	default:
+		return "*Please send your API key now.*\n\nSend /cancel to abort."
+	}
+}
+
+// friendlyAIError translates raw AI API errors into user-friendly messages.
+func friendlyAIError(backend string, err error) string {
+	errStr := err.Error()
+	name := backendDisplayName(backend)
+
+	billingLinks := map[string]string{
+		"claude": "https://platform.claude.com/settings/billing",
+		"openai": "https://platform.openai.com/account/billing",
+		"gemini": "https://aistudio.google.com/apikey",
+	}
+
+	// Connection errors
+	if strings.Contains(errStr, "API call:") || strings.Contains(errStr, "dial") || strings.Contains(errStr, "connection refused") {
+		if backend == "ollama" {
+			return "Couldn't connect to Ollama. Make sure it's installed and running on your machine.\n\nInstall: https://ollama.com"
+		}
+		return fmt.Sprintf("Couldn't reach %s. Check your internet connection and try again.", name)
+	}
+
+	// Auth errors (401/403)
+	if strings.Contains(errStr, "HTTP 401") || strings.Contains(errStr, "HTTP 403") {
+		return fmt.Sprintf("That API key doesn't seem to be valid for %s. Double-check you copied the full key, or set a new one with /settings.", name)
+	}
+
+	// Credit/billing errors
+	if strings.Contains(errStr, "HTTP 400") && (strings.Contains(errStr, "credit") || strings.Contains(errStr, "billing") || strings.Contains(errStr, "balance")) {
+		link := billingLinks[backend]
+		if link != "" {
+			return fmt.Sprintf("Your %s account needs credits. Add them at %s and try again.", name, link)
+		}
+		return fmt.Sprintf("Your %s account needs credits. Check your billing settings and try again.", name)
+	}
+
+	// Rate limit (429)
+	if strings.Contains(errStr, "HTTP 429") {
+		return fmt.Sprintf("%s is rate-limited. Wait a moment and try again.", name)
+	}
+
+	// Generic HTTP errors — show the status but keep it friendly
+	if strings.Contains(errStr, "API error (HTTP") || strings.Contains(errStr, "Ollama error (HTTP") {
+		return fmt.Sprintf("%s returned an error. This is usually temporary — try again in a moment.\n\n_Details: %s_", name, escapeMarkdown(errStr))
+	}
+
+	// Fallback
+	return fmt.Sprintf("%s error: %s", name, escapeMarkdown(errStr))
 }
 
 // backendDisplayName returns a display-friendly name for a backend.

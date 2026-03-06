@@ -55,8 +55,13 @@ func (b *Bot) SendAgentMessage(msg *msgbox.Message, filename string) {
 		tgMsg.ParseMode = "Markdown"
 		sent, err := b.api.Send(tgMsg)
 		if err != nil {
-			b.logger.Printf("Failed to send agent message to %d: %v", userID, err)
-			continue
+			b.logger.Printf("Markdown agent message failed (%d): %v — retrying as plain text", userID, err)
+			tgMsg.ParseMode = ""
+			sent, err = b.api.Send(tgMsg)
+			if err != nil {
+				b.logger.Printf("Plain text agent message also failed (%d): %v", userID, err)
+				continue
+			}
 		}
 		b.replies.track(sent.MessageID, filename, msg.From)
 	}

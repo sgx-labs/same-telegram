@@ -69,7 +69,7 @@ func (b *Bot) handleStop(msg *tgbotapi.Message) {
 // If an AI request is in flight, cancel it and resubmit.
 // Otherwise, treat the edited message as a new message.
 func (b *Bot) handleEditedMessage(msg *tgbotapi.Message) {
-	if !b.allowedUsers[msg.From.ID] {
+	if !b.isPublicMode() && !b.allowedUsers[msg.From.ID] {
 		b.logger.Printf("Dropped edited message from unauthorized user %d (%s)", msg.From.ID, msg.From.UserName)
 		return
 	}

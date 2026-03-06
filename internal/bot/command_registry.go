@@ -7,14 +7,39 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-// botCommands is the single source of truth for all bot commands.
-// Used both for registering with Telegram's setMyCommands and generating /help text.
-var botCommands = []tgbotapi.BotCommand{
-	{Command: "claude", Description: "Toggle Claude mode"},
+// publicCommands are shown in public mode (no vault/CLI features).
+var publicCommands = []tgbotapi.BotCommand{
+	{Command: "start", Description: "Get started"},
+	{Command: "ai", Description: "AI mode on/off/settings"},
+	{Command: "onboard", Description: "Set up your AI backend"},
+	{Command: "settings", Description: "Manage your settings"},
+	{Command: "new", Description: "Start a new conversation"},
+	{Command: "stop", Description: "Cancel in-flight request"},
+	{Command: "usage", Description: "Today's AI usage"},
+	{Command: "vault", Description: "Learn about vault features"},
+	{Command: "help", Description: "Show all commands"},
+}
+
+// alwaysCommands are available in both internal and public modes.
+var alwaysCommands = []tgbotapi.BotCommand{
 	{Command: "ai", Description: "AI backend settings"},
 	{Command: "reset", Description: "Clear conversation session"},
+	{Command: "new", Description: "Start a new conversation"},
+	{Command: "clear", Description: "Clear conversation history"},
 	{Command: "onboard", Description: "Set up AI backend"},
 	{Command: "settings", Description: "Manage settings"},
+	{Command: "status", Description: "Vault status"},
+	{Command: "doctor", Description: "Health check"},
+	{Command: "search", Description: "Search vault"},
+	{Command: "ask", Description: "Ask SAME a question"},
+	{Command: "stop", Description: "Cancel in-flight request"},
+	{Command: "usage", Description: "Today's AI usage"},
+	{Command: "help", Description: "Show all commands"},
+}
+
+// internalOnlyCommands are only registered and shown in internal mode.
+var internalOnlyCommands = []tgbotapi.BotCommand{
+	{Command: "claude", Description: "Alias for /ai (deprecated)"},
 	{Command: "team", Description: "Agent team status"},
 	{Command: "decisions", Description: "Pending decisions"},
 	{Command: "announce", Description: "Post CEO announcement"},
@@ -22,53 +47,80 @@ var botCommands = []tgbotapi.BotCommand{
 	{Command: "review", Description: "Read a review doc"},
 	{Command: "approve", Description: "Approve a review"},
 	{Command: "reject", Description: "Reject a review"},
-	{Command: "status", Description: "Vault status"},
-	{Command: "doctor", Description: "Health check"},
-	{Command: "search", Description: "Search vault"},
-	{Command: "ask", Description: "Ask SAME a question"},
-	{Command: "stop", Description: "Cancel in-flight request"},
 	{Command: "task", Description: "Create or view a task"},
 	{Command: "tasks", Description: "List active tasks"},
 	{Command: "cancel_task", Description: "Cancel a task"},
-	{Command: "usage", Description: "Today's AI usage"},
-	{Command: "help", Description: "Show all commands"},
 }
 
-// generateHelpText builds the /help response from botCommands.
-func generateHelpText() string {
-	var b strings.Builder
-	b.WriteString("*SAME Telegram Bot -- Commands*\n\n")
+// botCommands returns the full command list for internal mode (backward compat).
+var botCommands = append(append([]tgbotapi.BotCommand{}, alwaysCommands...), internalOnlyCommands...)
+
+// commandsForMode returns the appropriate command list based on mode.
+func commandsForMode(public bool) []tgbotapi.BotCommand {
+	if public {
+		return publicCommands
+	}
+	return botCommands
+}
+
+// generateHelpText builds the /help response, filtering by bot mode.
+func (b *Bot) generateHelpText() string {
+	var sb strings.Builder
+	sb.WriteString("*SAME Telegram Bot -- Commands*\n\n")
 
 	// Group commands by category for readability.
 	type group struct {
 		label    string
 		commands []string
+		internal bool // true = only shown in internal mode
 	}
 
 	groups := []group{
-		{"AI", []string{"claude", "ai", "reset", "onboard", "settings"}},
-		{"Team", []string{"team", "decisions", "announce"}},
-		{"Reviews", []string{"reviews", "review", "approve", "reject"}},
-		{"Tasks", []string{"task", "tasks", "cancel_task"}},
-		{"Management", []string{"status", "doctor", "search", "ask", "stop", "usage", "help"}},
+		{"AI", []string{"claude", "ai", "reset", "new", "clear", "onboard", "settings"}, false},
+		{"Team", []string{"team", "decisions", "announce"}, true},
+		{"Reviews", []string{"reviews", "review", "approve", "reject"}, true},
+		{"Tasks", []string{"task", "tasks", "cancel_task"}, true},
+		{"Management", []string{"status", "doctor", "search", "ask", "stop", "usage", "help"}, false},
 	}
 
-	// Build a lookup map from the registry.
+	isPublic := b.isPublicMode()
+
+	// Build a lookup map from the full registry.
 	desc := make(map[string]string, len(botCommands))
 	for _, c := range botCommands {
 		desc[c.Command] = c.Description
 	}
 
+	// In public mode, also filter out "claude" (internal-only alias)
+	internalCmds := map[string]bool{
+		"claude": true, "team": true, "decisions": true, "announce": true,
+		"reviews": true, "review": true, "approve": true, "reject": true,
+		"task": true, "tasks": true, "cancel_task": true,
+	}
+
 	for _, g := range groups {
-		b.WriteString(fmt.Sprintf("*%s:*\n", g.label))
+		if isPublic && g.internal {
+			continue
+		}
+		sb.WriteString(fmt.Sprintf("*%s:*\n", g.label))
 		for _, cmd := range g.commands {
+			if isPublic && internalCmds[cmd] {
+				continue
+			}
 			d := desc[cmd]
 			// Use hyphen form for display (Telegram menu needs underscore).
 			display := strings.ReplaceAll(cmd, "_", "-")
-			b.WriteString(fmt.Sprintf("/%s -- %s\n", display, d))
+			sb.WriteString(fmt.Sprintf("/%s -- %s\n", display, d))
 		}
-		b.WriteString("\n")
+		sb.WriteString("\n")
 	}
 
-	return strings.TrimRight(b.String(), "\n")
+	// In public mode, show vault features teaser
+	if isPublic {
+		sb.WriteString("\n*SAME Vault Features (self-hosted only):*\n")
+		sb.WriteString("Search your knowledge base, monitor vault health, get AI-powered answers from your notes, and more. These features require running SAME on your own machine.\n\n")
+		sb.WriteString("Self-host guide: https://github.com/sgx-labs/same-telegram\n")
+	}
+
+	return strings.TrimRight(sb.String(), "\n")
 }

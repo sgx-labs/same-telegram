@@ -26,15 +26,17 @@ type Bot struct {
 	// allowedUsers is a set of allowed Telegram user IDs for fast lookup.
 	allowedUsers map[int64]bool
 
-	ai         *aiState
-	claude     *claudeToggle
-	sessions   *sessionStore
-	filter     *filter.Filter
-	replies    *replyTracker
-	store      *store.Store
-	onboarding *onboardingState
-	auditLog   *audit.Logger
-	limiter    *rateLimiter
+	ai            *aiState
+	claude        *claudeToggle
+	sessions      *sessionStore
+	conversations *conversationStore
+	filter        *filter.Filter
+	replies       *replyTracker
+	store         *store.Store
+	onboarding    *onboardingState
+	auditLog      *audit.Logger
+	limiter       *rateLimiter
+	inbound       *inboundLimiter
 
 	// inflightMu protects the inflight map.
 	inflightMu sync.Mutex
@@ -66,6 +68,15 @@ func New(cfg *config.Config, logger *log.Logger) (*Bot, error) {
 
 	logger.Printf("Authorized on Telegram as @%s", api.Self.UserName)
 
+	limiter := newRateLimiter()
+	// Inbound: 1 msg/sec, burst 3 (internal); 1 msg/3sec, burst 2 (public)
+	inbound := newInboundLimiter(1.0, 3)
+	if cfg.Bot.IsPublicMode() {
+		limiter = newPublicRateLimiter()
+		inbound = newInboundLimiter(1.0/3.0, 2)
+		logger.Printf("Running in PUBLIC mode with stricter rate limits")
+	}
+
 	return &Bot{
 		api:          api,
 		cfg:          cfg,
@@ -73,15 +84,22 @@ func New(cfg *config.Config, logger *log.Logger) (*Bot, error) {
 		allowedUsers: allowed,
 		ai:           newAIState(),
 		claude:       newClaudeToggle(),
-		sessions:     newSessionStore(),
+		sessions:      newSessionStore(),
+		conversations: newConversationStore(),
 		filter:       filter.New(),
 		replies:      newReplyTracker(),
 		store:        userStore,
 		onboarding:   newOnboardingState(),
 		inflight:     make(map[int64]inflightEntry),
 		auditLog:     audit.NewLogger(),
-		limiter:      newRateLimiter(),
+		limiter:      limiter,
+		inbound:      inbound,
 	}, nil
+}
+
+// isPublicMode returns true when the bot is running in public (restricted) mode.
+func (b *Bot) isPublicMode() bool {
+	return b.cfg.Bot.IsPublicMode()
 }
 
 // Run starts the bot polling loop. Blocks until context is cancelled.
@@ -91,9 +109,15 @@ func (b *Bot) Run(ctx context.Context) error {
 
 	updates := b.api.GetUpdatesChan(u)
 
-	// Register commands with Telegram's "/" menu using the single source of truth.
-	commands := tgbotapi.NewSetMyCommands(botCommands...)
-	if _, err := b.api.Request(commands); err != nil {
+	// Start background eviction for in-memory stores to prevent OOM.
+	b.conversations.StartEviction(ctx)
+	b.sessions.StartEviction(ctx)
+	b.onboarding.StartEviction(ctx)
+
+	// Register commands with Telegram's "/" menu, filtered by mode.
+	cmds := commandsForMode(b.isPublicMode())
+	setCmd := tgbotapi.NewSetMyCommands(cmds...)
+	if _, err := b.api.Request(setCmd); err != nil {
 		b.logger.Printf("Failed to register bot commands menu: %v", err)
 	}
 
@@ -132,15 +156,27 @@ func (b *Bot) SendNotification(n *notify.Notification) {
 			msg.ReplyMarkup = keyboard
 		}
 		if _, err := b.sendWithRetry(msg); err != nil {
-			b.logger.Printf("Failed to send notification to %d: %v", userID, err)
+			b.logger.Printf("Markdown notification send failed (%d): %v — retrying as plain text", userID, err)
+			msg.ParseMode = ""
+			if _, err2 := b.sendWithRetry(msg); err2 != nil {
+				b.logger.Printf("Plain text notification also failed (%d): %v", userID, err2)
+			}
 		}
 	}
 }
 
 func (b *Bot) handleUpdate(msg *tgbotapi.Message) {
-	// Security: silently drop messages from unknown users
-	if !b.allowedUsers[msg.From.ID] {
+	// Security: in internal mode, silently drop messages from unknown users.
+	// In public mode, allow all users (empty whitelist = open access).
+	if !b.isPublicMode() && !b.allowedUsers[msg.From.ID] {
 		b.logger.Printf("Dropped message from unauthorized user %d (%s)", msg.From.ID, msg.From.UserName)
+		return
+	}
+
+	// Inbound rate limiting: silently drop messages that exceed the per-user rate.
+	// No response is sent to avoid amplification attacks.
+	if !b.inbound.allow(msg.From.ID) {
+		b.logger.Printf("Inbound rate limit exceeded for user %d — dropping message", msg.From.ID)
 		return
 	}
 
@@ -166,23 +202,30 @@ func (b *Bot) handleUpdate(msg *tgbotapi.Message) {
 			return
 		}
 
-		// Legacy: CLI-based AI mode, then Claude mode
-		if b.ai.isEnabled(msg.From.ID) {
-			b.handleAIMessage(msg.Chat.ID, msg.From.ID, msg.Text)
-			return
-		}
-		if b.claude.isEnabled(msg.From.ID) {
-			b.handleClaudeMessage(msg.Chat.ID, msg.From.ID, msg.Text)
-			return
+		// Legacy: CLI-based AI mode, then Claude mode (internal only — shells out)
+		if !b.isPublicMode() {
+			if b.ai.isEnabled(msg.From.ID) {
+				b.handleAIMessage(msg.Chat.ID, msg.From.ID, msg.Text)
+				return
+			}
+			if b.claude.isEnabled(msg.From.ID) {
+				b.handleClaudeMessage(msg.Chat.ID, msg.From.ID, msg.Text)
+				return
+			}
 		}
 
-		// Default: vault search
-		reply, err := cmdSearch(msg.Text)
-		if err != nil {
-			b.sendMarkdown(msg.Chat.ID, fmt.Sprintf("Error: %s", err))
-			return
+		// Default: vault search (internal only — shells out to `same search`)
+		if !b.isPublicMode() {
+			reply, err := cmdSearch(msg.Text)
+			if err != nil {
+				b.sendMarkdown(msg.Chat.ID, fmt.Sprintf("Error: %s", err))
+				return
+			}
+			b.sendMarkdown(msg.Chat.ID, reply)
+		} else {
+			// Public mode: auto-trigger onboarding for users who haven't set up yet
+			b.sendOnboardingPrompt(msg.Chat.ID)
 		}
-		b.sendMarkdown(msg.Chat.ID, reply)
 	}
 }
 
@@ -190,7 +233,13 @@ func (b *Bot) handleUpdate(msg *tgbotapi.Message) {
 var validCallbackPattern = regexp.MustCompile(`^[a-zA-Z0-9_:.\-]{1,64}$`)
 
 func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
-	if !b.allowedUsers[cb.From.ID] {
+	if !b.isPublicMode() && !b.allowedUsers[cb.From.ID] {
+		return
+	}
+
+	// Inbound rate limiting for callbacks — silently drop if exceeded.
+	if !b.inbound.allow(cb.From.ID) {
+		b.logger.Printf("Inbound rate limit exceeded for user %d callback — dropping", cb.From.ID)
 		return
 	}
 
@@ -211,9 +260,31 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 	case strings.HasPrefix(cb.Data, "onboard:"):
 		b.handleOnboardingCallback(cb)
 	case strings.HasPrefix(cb.Data, "mode:"):
+		if b.isPublicMode() && strings.Contains(cb.Data, ":cli:") {
+			b.sendMarkdown(cb.Message.Chat.ID, "CLI mode is not available. Use API Key mode instead.")
+			return
+		}
 		b.handleModeCallback(cb)
 	case strings.HasPrefix(cb.Data, "settings:"):
 		b.handleSettingsCallback(cb)
+	case strings.HasPrefix(cb.Data, "review_approve:"), strings.HasPrefix(cb.Data, "review_reject:"):
+		parts := strings.SplitN(cb.Data, ":", 2)
+		if len(parts) == 2 {
+			if b.isPublicMode() {
+				b.sendMarkdown(cb.Message.Chat.ID, "This command is not available.")
+				return
+			}
+			action := "approved"
+			if strings.HasPrefix(cb.Data, "review_reject:") {
+				action = "rejected"
+			}
+			result, err := moveReview(parts[1], action)
+			if err != nil {
+				b.sendMarkdown(cb.Message.Chat.ID, fmt.Sprintf("Error: %s", err))
+			} else {
+				b.sendMarkdown(cb.Message.Chat.ID, result)
+			}
+		}
 	case strings.HasPrefix(cb.Data, "approve:"), strings.HasPrefix(cb.Data, "reject:"):
 		parts := strings.SplitN(cb.Data, ":", 2)
 		if len(parts) == 2 {

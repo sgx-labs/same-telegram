@@ -3,3 +3,5 @@ dist/
 *.pid
 *.sock
 *.log
+*.db
+.same/

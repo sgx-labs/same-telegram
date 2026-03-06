@@ -39,24 +39,21 @@ func (ct *claudeToggle) set(userID int64, enabled bool) {
 }
 
 // handleClaudeCommand processes /claude [on|off] commands.
+// Deprecated: /claude is now an alias for /ai. /claude on maps to /ai claude,
+// /claude off maps to /ai off.
 func (b *Bot) handleClaudeCommand(msg *tgbotapi.Message, args string) {
-	args = strings.TrimSpace(args)
+	args = strings.TrimSpace(strings.ToLower(args))
 
-	switch strings.ToLower(args) {
+	switch args {
 	case "on":
-		b.claude.set(msg.From.ID, true)
-		b.sendMarkdown(msg.Chat.ID, "🤖 *Claude mode enabled.*\n\nAll text messages will be sent to Claude. Use /claude off to disable.")
+		b.handleAICommand(msg, "claude")
 	case "off":
-		b.claude.set(msg.From.ID, false)
-		b.sendMarkdown(msg.Chat.ID, "🔇 *Claude mode disabled.*\n\nText messages will be treated as search queries.")
+		b.handleAICommand(msg, "off")
 	default:
-		enabled := b.claude.isEnabled(msg.From.ID)
-		status := "disabled"
-		if enabled {
-			status = "enabled"
-		}
-		b.sendMarkdown(msg.Chat.ID, fmt.Sprintf("🤖 *Claude mode:* %s\n\nUse `/claude on` or `/claude off` to toggle.", status))
+		b.handleAICommand(msg, "")
 	}
+
+	b.sendMarkdown(msg.Chat.ID, "_Tip: /claude is now an alias for /ai. Use /ai to manage AI mode._")
 }
 
 // handleClaudeMessage sends a text message to the claude CLI and returns the response.
@@ -87,10 +84,10 @@ func (b *Bot) handleClaudeMessage(chatID int64, userID int64, prompt string) {
 		return
 	}
 
-	// Audit log the Claude invocation
+	// Audit log the Claude invocation (sanitize prompt to strip PII)
 	b.auditLog.Log(audit.Entry{
 		UserID:               userID,
-		Prompt:               prompt,
+		Prompt:               b.filter.Sanitize(prompt),
 		Response:             result.Text,
 		SessionID:            result.SessionID,
 		DangerousPermissions: opts.DangerousPermissions,

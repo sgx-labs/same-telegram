@@ -250,6 +250,10 @@ func DecisionKeyboard(filename string) tgbotapi.InlineKeyboardMarkup {
 
 // handleDecisionAction moves a decision file to the approved/ or rejected/ directory.
 func (b *Bot) handleDecisionAction(chatID int64, decisionID, action string) {
+	if b.isPublicMode() {
+		b.sendMarkdown(chatID, "This command is not available.")
+		return
+	}
 	hq := msgbox.CompanyHQDir()
 	pendingDir := filepath.Join(hq, "decisions", "pending")
 	targetDir := filepath.Join(hq, "decisions", action)

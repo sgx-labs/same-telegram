@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"context"
 	"sync"
 	"time"
 )
@@ -59,4 +60,32 @@ func (s *sessionStore) Clear(userID int64) {
 	s.mu.Lock()
 	delete(s.sessions, userID)
 	s.mu.Unlock()
+}
+
+// StartEviction runs a background goroutine that removes expired entries every 5 minutes.
+func (s *sessionStore) StartEviction(ctx context.Context) {
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				s.evictExpired()
+			}
+		}
+	}()
+}
+
+// evictExpired removes all expired session entries.
+func (s *sessionStore) evictExpired() {
+	now := time.Now()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for uid, entry := range s.sessions {
+		if now.After(entry.expiresAt) {
+			delete(s.sessions, uid)
+		}
+	}
 }

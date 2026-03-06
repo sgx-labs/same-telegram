@@ -103,7 +103,7 @@ func (c *OpenAIClient) Chat(ctx context.Context, prompt string, model string) (s
 		return "", fmt.Errorf("no response choices returned")
 	}
 
-	return result.Choices[0].Message.Content, nil
+	return StripThinkingTokens(result.Choices[0].Message.Content), nil
 }
 
 // ValidateKey makes a minimal API call to verify the key.

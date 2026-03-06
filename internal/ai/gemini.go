@@ -113,7 +113,7 @@ func (c *GeminiClient) Chat(ctx context.Context, prompt string, model string) (s
 		text += part.Text
 	}
 
-	return text, nil
+	return StripThinkingTokens(text), nil
 }
 
 // ValidateKey makes a minimal API call to verify the key.

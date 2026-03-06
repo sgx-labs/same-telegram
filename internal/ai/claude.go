@@ -110,7 +110,7 @@ func (c *ClaudeClient) Chat(ctx context.Context, prompt string, model string) (s
 		}
 	}
 
-	return text, nil
+	return StripThinkingTokens(text), nil
 }
 
 // ValidateKey makes a minimal API call to verify the key.

@@ -11,7 +11,7 @@ func TestDefaultModel(t *testing.T) {
 	}{
 		{BackendClaude, "claude-sonnet-4-20250514"},
 		{BackendOpenAI, "gpt-4o"},
-		{BackendGemini, "gemini-2.0-flash"},
+		{BackendGemini, "gemini-2.5-flash"},
 		{BackendOllama, "qwen2.5-coder:7b"},
 		{Backend("unknown"), ""},
 	}

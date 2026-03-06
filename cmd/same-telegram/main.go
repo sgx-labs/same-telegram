@@ -5,6 +5,8 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+
+	"github.com/sgx-labs/same-telegram/internal/config"
 )
 
 var rootCmd = &cobra.Command{
@@ -24,6 +26,7 @@ func main() {
 }
 
 func init() {
+	rootCmd.PersistentFlags().StringVar(&config.OverrideConfigPath, "config", "", "Path to config file (default: ~/.same/telegram.toml)")
 	rootCmd.AddCommand(hookCmd)
 	rootCmd.AddCommand(serveCmd)
 	rootCmd.AddCommand(setupCmd)

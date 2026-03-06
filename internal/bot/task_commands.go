@@ -178,6 +178,10 @@ func resolveTask(identifier string, tasks []*taskqueue.Task) (*taskqueue.Task, i
 // handleTaskCommand dispatches /task based on whether the argument looks
 // like a number (view task) or text (create task).
 func (b *Bot) handleTaskCommand(msg *tgbotapi.Message, args string) {
+	if b.isPublicMode() {
+		b.sendMarkdown(msg.Chat.ID, "This command is not available.")
+		return
+	}
 	args = strings.TrimSpace(args)
 	if args == "" {
 		b.sendMarkdown(msg.Chat.ID, "Usage:\n`/task <description>` -- create a task\n`/task <n>` -- view task details")

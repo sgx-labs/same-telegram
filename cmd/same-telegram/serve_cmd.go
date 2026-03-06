@@ -101,7 +101,11 @@ func launchBackground() error {
 		return fmt.Errorf("find executable: %w", err)
 	}
 
-	child := exec.Command(exe, "serve", "--fg")
+	args := []string{"serve", "--fg"}
+	if config.OverrideConfigPath != "" {
+		args = append([]string{"--config", config.OverrideConfigPath}, args...)
+	}
+	child := exec.Command(exe, args...)
 	child.Env = append(os.Environ(), "_SAME_TELEGRAM_BG=1")
 	child.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 

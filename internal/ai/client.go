@@ -39,7 +39,7 @@ func DefaultModel(backend Backend) string {
 	case BackendOpenAI:
 		return "gpt-4o"
 	case BackendGemini:
-		return "gemini-2.0-flash"
+		return "gemini-2.5-flash"
 	case BackendOllama:
 		return "qwen2.5-coder:7b"
 	default:

@@ -3,6 +3,8 @@ package bot
 import (
 	"strings"
 	"testing"
+
+	"github.com/sgx-labs/same-telegram/internal/config"
 )
 
 func TestAIStateToggle(t *testing.T) {
@@ -148,7 +150,8 @@ func TestAIChunkTextNoNewlines(t *testing.T) {
 }
 
 func TestHelpTextIncludesAI(t *testing.T) {
-	text := helpText()
+	b := &Bot{cfg: &config.Config{}}
+	text := b.helpText()
 	commands := []string{"/ai"}
 	for _, cmd := range commands {
 		if !strings.Contains(text, cmd) {

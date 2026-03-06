@@ -26,7 +26,11 @@ func (b *Bot) SendReviewNotification(category, filename, summary string, isDecis
 			msg.ReplyMarkup = kb
 		}
 		if _, err := b.api.Send(msg); err != nil {
-			b.logger.Printf("Failed to send review notification to %d: %v", userID, err)
+			b.logger.Printf("Markdown review notification failed (%d): %v — retrying as plain text", userID, err)
+			msg.ParseMode = ""
+			if _, err2 := b.api.Send(msg); err2 != nil {
+				b.logger.Printf("Plain text review notification also failed (%d): %v", userID, err2)
+			}
 		}
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sgx-labs/same-telegram/internal/config"
 	"github.com/sgx-labs/same-telegram/internal/msgbox"
 )
 
@@ -366,7 +367,8 @@ func TestCmdAnnounceFilenameFormat(t *testing.T) {
 }
 
 func TestHelpTextIncludesTeamCommands(t *testing.T) {
-	text := helpText()
+	b := &Bot{cfg: &config.Config{}}
+	text := b.helpText()
 	for _, cmd := range []string{"/team", "/decisions", "/announce"} {
 		if !strings.Contains(text, cmd) {
 			t.Errorf("helpText missing %s", cmd)

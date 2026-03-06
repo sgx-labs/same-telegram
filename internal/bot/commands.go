@@ -17,11 +17,28 @@ func (b *Bot) handleCommand(msg *tgbotapi.Message) {
 	var reply string
 	var err error
 
+	// internalOnly is a set of commands restricted to internal mode.
+	internalOnly := map[string]bool{
+		"reviews": true, "review": true, "approve": true, "reject": true,
+		"decisions": true, "team": true, "announce": true,
+		"task": true, "tasks": true, "cancel-task": true,
+		"claude": true, "config": true,
+	}
+
+	if b.isPublicMode() && internalOnly[cmd] {
+		b.sendMarkdown(msg.Chat.ID, "This command is not available.")
+		return
+	}
+
 	switch cmd {
 	case "start":
+		if b.isPublicMode() {
+			b.sendOnboardingPrompt(msg.Chat.ID)
+			return
+		}
 		reply = startText()
 	case "help":
-		reply = helpText()
+		reply = b.helpText()
 	case "status":
 		reply, err = cmdStatus()
 	case "doctor":
@@ -30,6 +47,21 @@ func (b *Bot) handleCommand(msg *tgbotapi.Message) {
 		reply, err = cmdSearch(args)
 	case "ask":
 		reply, err = cmdAsk(args)
+	case "vault":
+		if b.isPublicMode() {
+			reply = "*SAME Vault Features*\n\n" +
+				"When you self-host SAME, you get:\n" +
+				"- /search — find anything in your knowledge base\n" +
+				"- /ask — AI-powered answers from your notes\n" +
+				"- /status — monitor vault health\n" +
+				"- /doctor — run health checks\n" +
+				"- /vaults — manage multiple vaults\n" +
+				"- /digest — daily summaries\n\n" +
+				"These features are free and run entirely on your machine.\n\n" +
+				"Get started: https://github.com/sgx-labs/same-telegram"
+		} else {
+			reply, err = cmdVaults()
+		}
 	case "vaults":
 		reply, err = cmdVaults()
 	case "digest":
@@ -46,8 +78,9 @@ func (b *Bot) handleCommand(msg *tgbotapi.Message) {
 	case "settings":
 		b.handleSettingsCommand(msg)
 		return
-	case "reset":
+	case "reset", "new", "clear":
 		b.sessions.Clear(msg.From.ID)
+		b.conversations.Clear(msg.From.ID)
 		reply = "Session cleared. Next message starts a fresh conversation."
 	case "cancel":
 		b.onboarding.clear(msg.From.ID)
@@ -148,8 +181,8 @@ I'll notify you about session completions, decisions that need your attention, a
 Type /help for the full command list, or just send me a message to get going.`
 }
 
-func helpText() string {
-	return generateHelpText()
+func (b *Bot) helpText() string {
+	return b.generateHelpText()
 }
 
 func cmdStatus() (string, error) {

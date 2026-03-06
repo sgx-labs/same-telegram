@@ -84,5 +84,5 @@ func (c *OllamaClient) Chat(ctx context.Context, prompt string, model string) (s
 		return "", fmt.Errorf("Ollama error: %s", result.Error)
 	}
 
-	return result.Response, nil
+	return StripThinkingTokens(result.Response), nil
 }

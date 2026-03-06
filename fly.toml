@@ -1,0 +1,22 @@
+app = "same-telegram"
+primary_region = "dfw"
+kill_signal = "SIGTERM"
+kill_timeout = "5s"
+
+[build]
+
+[env]
+  VAULT_PATH = "/data/vault"
+  SAME_HOME = "/data"
+
+# No HTTP services — this is a long-poll Telegram bot, not a web server.
+
+[mounts]
+  source = "same_data"
+  destination = "/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = 256
+  auto_stop_machines = "off"
+  auto_start_machines = false

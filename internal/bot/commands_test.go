@@ -9,7 +9,8 @@ import (
 )
 
 func TestHelpText(t *testing.T) {
-	text := helpText()
+	b := &Bot{cfg: &config.Config{}}
+	text := b.helpText()
 	if text == "" {
 		t.Error("helpText should not be empty")
 	}
@@ -30,7 +31,8 @@ func TestHelpText(t *testing.T) {
 }
 
 func TestHelpTextMarkdown(t *testing.T) {
-	text := helpText()
+	b := &Bot{cfg: &config.Config{}}
+	text := b.helpText()
 	// Should have bold markers for section headers
 	if !strings.Contains(text, "*") {
 		t.Error("helpText should contain Markdown bold markers")

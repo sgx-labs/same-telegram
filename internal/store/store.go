@@ -168,6 +168,29 @@ func (s *Store) migrate() error {
 		return err
 	}
 
+	// Migration: api_keys table for multi-backend key storage.
+	_, err = s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS api_keys (
+			telegram_user_id INTEGER NOT NULL,
+			backend          TEXT NOT NULL,
+			api_key_encrypted TEXT NOT NULL DEFAULT '',
+			model            TEXT NOT NULL DEFAULT '',
+			PRIMARY KEY (telegram_user_id, backend)
+		)
+	`)
+	if err != nil {
+		return err
+	}
+
+	// Migrate existing user keys into the api_keys table (one-time).
+	// Only copies rows that don't already exist in api_keys.
+	s.db.Exec(`
+		INSERT OR IGNORE INTO api_keys (telegram_user_id, backend, api_key_encrypted, model)
+		SELECT telegram_user_id, backend, api_key_encrypted, model
+		FROM users
+		WHERE backend != '' AND api_key_encrypted != ''
+	`)
+
 	return nil
 }
 
@@ -253,6 +276,14 @@ func (s *Store) UpdateMode(telegramUserID int64, mode string) error {
 	return err
 }
 
+// UpdateAIEnabled toggles the ai_enabled flag for a user.
+func (s *Store) UpdateAIEnabled(telegramUserID int64, enabled bool) error {
+	_, err := s.db.Exec(
+		`UPDATE users SET ai_enabled = ?, updated_at = datetime('now')
+		 WHERE telegram_user_id = ?`, boolToInt(enabled), telegramUserID)
+	return err
+}
+
 // CLIBinaryForBackend returns the expected CLI binary name for a backend.
 func CLIBinaryForBackend(backend string) string {
 	switch backend {
@@ -323,6 +354,62 @@ func (s *Store) DecryptKey(encHex string) (string, error) {
 	}
 
 	return string(plaintext), nil
+}
+
+// SaveAPIKey upserts an API key for a specific backend in the api_keys vault.
+func (s *Store) SaveAPIKey(telegramUserID int64, backend, encKey, model string) error {
+	_, err := s.db.Exec(`
+		INSERT INTO api_keys (telegram_user_id, backend, api_key_encrypted, model)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(telegram_user_id, backend) DO UPDATE SET
+			api_key_encrypted = excluded.api_key_encrypted,
+			model = excluded.model
+	`, telegramUserID, backend, encKey, model)
+	return err
+}
+
+// GetAPIKey retrieves the stored encrypted API key and model for a specific backend.
+// Returns empty strings if no key is stored.
+func (s *Store) GetAPIKey(telegramUserID int64, backend string) (encKey, model string, err error) {
+	err = s.db.QueryRow(
+		`SELECT api_key_encrypted, model FROM api_keys WHERE telegram_user_id = ? AND backend = ?`,
+		telegramUserID, backend).Scan(&encKey, &model)
+	if err == sql.ErrNoRows {
+		return "", "", nil
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("get api key: %w", err)
+	}
+	return encKey, model, nil
+}
+
+// GetConfiguredBackends returns a list of backends that have stored API keys for a user.
+func (s *Store) GetConfiguredBackends(telegramUserID int64) ([]string, error) {
+	rows, err := s.db.Query(
+		`SELECT backend FROM api_keys WHERE telegram_user_id = ? AND api_key_encrypted != '' ORDER BY backend`,
+		telegramUserID)
+	if err != nil {
+		return nil, fmt.Errorf("get configured backends: %w", err)
+	}
+	defer rows.Close()
+
+	var backends []string
+	for rows.Next() {
+		var b string
+		if err := rows.Scan(&b); err != nil {
+			return nil, fmt.Errorf("scan backend: %w", err)
+		}
+		backends = append(backends, b)
+	}
+	return backends, rows.Err()
+}
+
+// DeleteAPIKeyForBackend removes the stored API key for a specific backend.
+func (s *Store) DeleteAPIKeyForBackend(telegramUserID int64, backend string) error {
+	_, err := s.db.Exec(
+		`DELETE FROM api_keys WHERE telegram_user_id = ? AND backend = ?`,
+		telegramUserID, backend)
+	return err
 }
 
 // todayString returns today's date as YYYY-MM-DD in UTC.

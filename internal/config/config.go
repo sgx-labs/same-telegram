@@ -32,6 +32,12 @@ type BotConfig struct {
 	EncryptionKey        string  `toml:"encryption_key"`
 	OwnerID              int64   `toml:"owner_id"`
 	DangerousPermissions bool    `toml:"dangerous_permissions"`
+	Mode                 string  `toml:"mode"` // "internal" (default) or "public"
+}
+
+// IsPublicMode returns true when the bot is running in public (restricted) mode.
+func (b *BotConfig) IsPublicMode() bool {
+	return b.Mode == "public"
 }
 
 // EffectiveOwnerID returns the configured owner_id, or falls back to the first
@@ -86,6 +92,9 @@ func DefaultConfig() *Config {
 	}
 }
 
+// OverrideConfigPath allows setting a custom config file path via --config flag.
+var OverrideConfigPath string
+
 // configDir returns ~/.same/
 func configDir() string {
 	home, _ := os.UserHomeDir()
@@ -94,22 +103,39 @@ func configDir() string {
 
 // ConfigPath returns the path to the telegram config file.
 func ConfigPath() string {
+	if OverrideConfigPath != "" {
+		return OverrideConfigPath
+	}
 	return filepath.Join(configDir(), "telegram.toml")
+}
+
+// pathSuffix returns a suffix derived from the config file name for multi-instance support.
+// e.g., "telegram-public.toml" -> "-public", "telegram.toml" -> ""
+func pathSuffix() string {
+	if OverrideConfigPath == "" {
+		return ""
+	}
+	base := filepath.Base(OverrideConfigPath)
+	base = strings.TrimSuffix(base, filepath.Ext(base)) // "telegram-public"
+	if base == "telegram" {
+		return ""
+	}
+	return strings.TrimPrefix(base, "telegram") // "-public"
 }
 
 // SocketPath returns the path to the daemon unix socket.
 func SocketPath() string {
-	return filepath.Join(configDir(), "telegram.sock")
+	return filepath.Join(configDir(), "telegram"+pathSuffix()+".sock")
 }
 
 // PidPath returns the path to the daemon PID file.
 func PidPath() string {
-	return filepath.Join(configDir(), "telegram.pid")
+	return filepath.Join(configDir(), "telegram"+pathSuffix()+".pid")
 }
 
 // LogPath returns the path to the daemon log file.
 func LogPath() string {
-	return filepath.Join(configDir(), "telegram.log")
+	return filepath.Join(configDir(), "telegram"+pathSuffix()+".log")
 }
 
 // Load reads the config from ~/.same/telegram.toml.
@@ -138,7 +164,7 @@ func Load() (*Config, error) {
 	if cfg.Bot.Token == "" {
 		return nil, fmt.Errorf("bot.token is required in %s", path)
 	}
-	if len(cfg.Bot.AllowedUserIDs) == 0 {
+	if len(cfg.Bot.AllowedUserIDs) == 0 && !cfg.Bot.IsPublicMode() {
 		return nil, fmt.Errorf("bot.allowed_user_ids is required in %s (security: whitelist your Telegram user ID)", path)
 	}
 

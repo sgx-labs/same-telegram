@@ -349,6 +349,152 @@ func TestIncrementAndGetMessageCount(t *testing.T) {
 	}
 }
 
+func TestSaveAndGetAPIKey(t *testing.T) {
+	s := testStore(t)
+
+	enc, err := s.EncryptKey("sk-test-claude-key")
+	if err != nil {
+		t.Fatalf("EncryptKey: %v", err)
+	}
+
+	// Save a key for claude
+	if err := s.SaveAPIKey(100, "claude", enc, "claude-sonnet-4-20250514"); err != nil {
+		t.Fatalf("SaveAPIKey: %v", err)
+	}
+
+	// Retrieve it
+	gotEnc, gotModel, err := s.GetAPIKey(100, "claude")
+	if err != nil {
+		t.Fatalf("GetAPIKey: %v", err)
+	}
+	if gotEnc != enc {
+		t.Errorf("encKey mismatch")
+	}
+	if gotModel != "claude-sonnet-4-20250514" {
+		t.Errorf("model = %q, want claude-sonnet-4-20250514", gotModel)
+	}
+
+	// Non-existent backend returns empty
+	gotEnc, gotModel, err = s.GetAPIKey(100, "openai")
+	if err != nil {
+		t.Fatalf("GetAPIKey (missing): %v", err)
+	}
+	if gotEnc != "" || gotModel != "" {
+		t.Errorf("Expected empty for missing backend, got enc=%q model=%q", gotEnc, gotModel)
+	}
+}
+
+func TestSaveAPIKeyUpsert(t *testing.T) {
+	s := testStore(t)
+
+	enc1, _ := s.EncryptKey("key-v1")
+	enc2, _ := s.EncryptKey("key-v2")
+
+	s.SaveAPIKey(100, "claude", enc1, "model-v1")
+	s.SaveAPIKey(100, "claude", enc2, "model-v2")
+
+	gotEnc, gotModel, _ := s.GetAPIKey(100, "claude")
+	if gotEnc != enc2 {
+		t.Error("Upsert should update the key")
+	}
+	if gotModel != "model-v2" {
+		t.Errorf("model = %q, want model-v2", gotModel)
+	}
+}
+
+func TestGetConfiguredBackends(t *testing.T) {
+	s := testStore(t)
+
+	// No backends initially
+	backends, err := s.GetConfiguredBackends(100)
+	if err != nil {
+		t.Fatalf("GetConfiguredBackends: %v", err)
+	}
+	if len(backends) != 0 {
+		t.Errorf("Expected 0 backends, got %d", len(backends))
+	}
+
+	// Add some keys
+	enc1, _ := s.EncryptKey("key1")
+	enc2, _ := s.EncryptKey("key2")
+	s.SaveAPIKey(100, "claude", enc1, "model1")
+	s.SaveAPIKey(100, "gemini", enc2, "model2")
+
+	backends, err = s.GetConfiguredBackends(100)
+	if err != nil {
+		t.Fatalf("GetConfiguredBackends: %v", err)
+	}
+	if len(backends) != 2 {
+		t.Fatalf("Expected 2 backends, got %d", len(backends))
+	}
+	// Should be sorted alphabetically
+	if backends[0] != "claude" || backends[1] != "gemini" {
+		t.Errorf("backends = %v, want [claude gemini]", backends)
+	}
+
+	// Different user should be independent
+	backends, _ = s.GetConfiguredBackends(200)
+	if len(backends) != 0 {
+		t.Errorf("Other user should have 0 backends, got %d", len(backends))
+	}
+}
+
+func TestDeleteAPIKeyForBackend(t *testing.T) {
+	s := testStore(t)
+
+	enc, _ := s.EncryptKey("key1")
+	s.SaveAPIKey(100, "claude", enc, "model1")
+	s.SaveAPIKey(100, "openai", enc, "model2")
+
+	if err := s.DeleteAPIKeyForBackend(100, "claude"); err != nil {
+		t.Fatalf("DeleteAPIKeyForBackend: %v", err)
+	}
+
+	// Claude should be gone
+	gotEnc, _, _ := s.GetAPIKey(100, "claude")
+	if gotEnc != "" {
+		t.Error("Claude key should be deleted")
+	}
+
+	// OpenAI should still exist
+	gotEnc, _, _ = s.GetAPIKey(100, "openai")
+	if gotEnc == "" {
+		t.Error("OpenAI key should still exist")
+	}
+}
+
+func TestMigrateExistingUserToAPIKeys(t *testing.T) {
+	s := testStore(t)
+
+	// Simulate a user that existed before the api_keys table
+	enc, _ := s.EncryptKey("existing-key")
+	u := &User{
+		TelegramUserID: 100,
+		Backend:        "claude",
+		APIKeyEnc:      enc,
+		Model:          "claude-sonnet-4-20250514",
+		Mode:           ModeAPI,
+		AIEnabled:      true,
+	}
+	s.SaveUser(u)
+
+	// Re-run migrate to simulate what happens on next startup
+	// (the INSERT OR IGNORE should copy the key)
+	s.migrate()
+
+	// The key should now be in api_keys
+	gotEnc, gotModel, err := s.GetAPIKey(100, "claude")
+	if err != nil {
+		t.Fatalf("GetAPIKey: %v", err)
+	}
+	if gotEnc != enc {
+		t.Error("Migration should copy existing key to api_keys")
+	}
+	if gotModel != "claude-sonnet-4-20250514" {
+		t.Errorf("model = %q, want claude-sonnet-4-20250514", gotModel)
+	}
+}
+
 func TestNewCreatesDir(t *testing.T) {
 	tmpDir := t.TempDir()
 	origHome := os.Getenv("HOME")

@@ -109,14 +109,22 @@ func (b *Bot) handleAICommand(msg *tgbotapi.Message, args string) {
 	switch args {
 	case "on":
 		b.ai.setEnabled(userID, true)
-		backend := b.ai.getBackend(userID)
+		// Also enable in persistent store so API-mode users stay enabled
+		if b.store != nil {
+			b.store.UpdateAIEnabled(userID, true)
+		}
+		backend := b.activeBackendName(userID)
 		b.sendMarkdown(chatID, fmt.Sprintf(
 			"🤖 *AI mode enabled* (backend: %s)\n\nAll text messages will be sent to %s. Use /ai off to disable.",
 			backend, backend))
 
 	case "off":
 		b.ai.setEnabled(userID, false)
-		b.sendMarkdown(chatID, "🔇 *AI mode disabled.*\n\nText messages will be treated as search queries.")
+		// Also disable in persistent store so API-mode users stop responding
+		if b.store != nil {
+			b.store.UpdateAIEnabled(userID, false)
+		}
+		b.sendMarkdown(chatID, "🔇 *AI mode disabled.*\n\nText messages will no longer be sent to AI. Use /ai on to re-enable.")
 
 	case "claude", "codex", "gemini", "ollama":
 		cfg := aiBackends[args]
@@ -138,10 +146,18 @@ func (b *Bot) handleAICommand(msg *tgbotapi.Message, args string) {
 			"*AI mode ON* -- switched to *%s*\n_%s_\n\nJust type your message. Use /ai off to disable.", args, desc))
 
 	case "":
-		enabled := b.ai.isEnabled(userID)
+		enabled := b.isAIEnabled(userID)
 		if enabled {
-			backend := b.ai.getBackend(userID)
+			backend := b.activeBackendName(userID)
 			desc := aiBackendDescriptions[backend]
+			if desc == "" {
+				// Try raw backend name from store
+				if b.store != nil {
+					if user, err := b.store.GetUser(userID); err == nil && user != nil {
+						desc = aiBackendDescriptions[user.Backend]
+					}
+				}
+			}
 			b.sendMarkdown(chatID, fmt.Sprintf(
 				"*AI mode: ON*\n*Backend:* %s -- %s\n\nJust type your message, or switch:\n/ai off -- disable\n/ai claude -- Anthropic Claude\n/ai codex -- OpenAI Codex\n/ai gemini -- Google Gemini\n/ai ollama -- local model (free, private)",
 				backend, desc))
@@ -152,6 +168,30 @@ func (b *Bot) handleAICommand(msg *tgbotapi.Message, args string) {
 	default:
 		b.sendMarkdown(chatID, "Unknown option. Use /ai claude, /ai codex, /ai gemini, /ai ollama, /ai on, /ai off.")
 	}
+}
+
+// isAIEnabled checks if AI mode is enabled, checking both in-memory and store.
+func (b *Bot) isAIEnabled(userID int64) bool {
+	if b.ai.isEnabled(userID) {
+		return true
+	}
+	if b.store != nil {
+		if user, err := b.store.GetUser(userID); err == nil && user != nil {
+			return user.AIEnabled
+		}
+	}
+	return false
+}
+
+// activeBackendName returns the user's active backend display name,
+// checking the persistent store first, then falling back to in-memory state.
+func (b *Bot) activeBackendName(userID int64) string {
+	if b.store != nil {
+		if user, err := b.store.GetUser(userID); err == nil && user != nil && user.Backend != "" {
+			return backendDisplayName(user.Backend)
+		}
+	}
+	return b.ai.getBackend(userID)
 }
 
 // handleAIMessage sends a text message to the selected AI backend and returns the response.
@@ -224,10 +264,10 @@ func (b *Bot) handleAIMessageCLI(chatID int64, userID int64, backend, prompt str
 			return
 		}
 
-		// Audit log the Claude invocation
+		// Audit log the Claude invocation (sanitize prompt to strip PII)
 		b.auditLog.Log(audit.Entry{
 			UserID:               userID,
-			Prompt:               prompt,
+			Prompt:               b.filter.Sanitize(prompt),
 			Response:             result.Text,
 			SessionID:            result.SessionID,
 			DangerousPermissions: opts.DangerousPermissions,
@@ -324,7 +364,11 @@ func (b *Bot) handleAIMessageAPI(chatID int64, userID int64, backend, prompt str
 		model = defaultModelForBackend(backend)
 	}
 
-	response, err := client.Chat(ctx, prompt, model)
+	// Build prompt with conversation history for multi-turn continuity
+	history := b.conversations.Get(userID)
+	fullPrompt := BuildPromptWithHistory(history, prompt)
+
+	response, err := client.Chat(ctx, fullPrompt, model)
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			b.sendMarkdown(chatID, fmt.Sprintf("%s timed out after %s.", backendDisplayName(backend), aiTimeout))
@@ -338,6 +382,9 @@ func (b *Bot) handleAIMessageAPI(chatID int64, userID int64, backend, prompt str
 		b.sendMarkdown(chatID, fmt.Sprintf("_%s returned an empty response._", backendDisplayName(backend)))
 		return
 	}
+
+	// Store conversation pair for future context
+	b.conversations.Add(userID, prompt, response)
 
 	// PII filter
 	response = b.filter.Sanitize(response)

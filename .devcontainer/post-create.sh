@@ -23,7 +23,7 @@ fi
 
 # Set up git identity for dev
 git config --global user.name "sgx-labs"
-git config --global user.email "dev@sgx-labs.dev"
+git config --global user.email "dev@thirty3labs.com"
 git config --global init.defaultBranch main
 
 # Build same-telegram

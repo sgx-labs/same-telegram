@@ -5,3 +5,9 @@ dist/
 *.log
 *.db
 .same/
+.env
+.env.*
+telegram.toml
+_PRIVATE/
+.claude/
+.mcp.json

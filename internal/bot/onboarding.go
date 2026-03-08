@@ -25,7 +25,7 @@ func (b *Bot) sendOnboardingPrompt(chatID int64) {
 		"*OpenAI* — GPT-4o, widely used and versatile\n" +
 		"*Gemini* — Google's AI, free credits available\n" +
 		"*Ollama* — Free and local, runs on your own computer\n\n" +
-		"_Already have a Claude or ChatGPT subscription? Run SAME on your own machine for free and use your existing subscription with no extra API costs. See github.com/sgx-labs/same-telegram_\n\n" +
+		"_Already have an AI subscription? Run SAME on your own machine for free and use your existing keys with no extra API costs. See github.com/sgx-labs/same-telegram_\n\n" +
 		"_Self-host SAME to also get vault search, health checks, and knowledge management — free forever._"
 	kb := OnboardingKeyboard()
 	msg := tgbotapi.NewMessage(chatID, text)

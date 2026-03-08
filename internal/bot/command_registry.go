@@ -42,7 +42,7 @@ var internalOnlyCommands = []tgbotapi.BotCommand{
 	{Command: "claude", Description: "Alias for /ai (deprecated)"},
 	{Command: "team", Description: "Agent team status"},
 	{Command: "decisions", Description: "Pending decisions"},
-	{Command: "announce", Description: "Post CEO announcement"},
+	{Command: "announce", Description: "Post admin announcement"},
 	{Command: "reviews", Description: "List pending reviews"},
 	{Command: "review", Description: "Read a review doc"},
 	{Command: "approve", Description: "Approve a review"},

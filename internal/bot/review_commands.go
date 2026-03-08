@@ -210,8 +210,8 @@ func moveReview(arg, action string) (string, error) {
 	// Write audit log BEFORE performing any mutation (crash atomicity)
 	audit.LogReviewAction(action, f.Name, "intent")
 
-	// Append CEO action stamp
-	stamp := fmt.Sprintf("\n\n---\n**CEO Decision:** %s at %s\n",
+	// Append admin action stamp
+	stamp := fmt.Sprintf("\n\n---\n**Admin Decision:** %s at %s\n",
 		strings.ToUpper(action), time.Now().Format(time.RFC3339))
 	appendF, err := os.OpenFile(f.FullPath, os.O_APPEND|os.O_WRONLY, 0o644)
 	if err == nil {

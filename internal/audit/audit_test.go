@@ -8,7 +8,7 @@ import (
 )
 
 func TestLogReviewAction(t *testing.T) {
-	// Set up temp company-hq dir
+	// Set up temp data dir
 	tmpDir := t.TempDir()
 	t.Setenv("SAME_COMPANY_HQ", tmpDir)
 

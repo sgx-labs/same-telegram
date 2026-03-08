@@ -33,7 +33,7 @@ func allDirs() []string {
 	return dirs
 }
 
-// EnsureDirs creates all task state directories under company-hq/tasks/.
+// EnsureDirs creates all task state directories under the tasks root.
 func EnsureDirs() error {
 	for _, dir := range allDirs() {
 		if err := os.MkdirAll(dir, 0o755); err != nil {

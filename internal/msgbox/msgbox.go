@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// Directories under company-hq/messages/
+// Directories under the data root messages/ subdirectory.
 const (
 	outboundDir   = "messages/outbound"
 	processedDir  = "messages/outbound/processed"
@@ -39,14 +39,14 @@ type Reply struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
-// CompanyHQDir returns the path to company-hq.
-// Uses SAME_COMPANY_HQ env var if set, otherwise defaults to ~/Projects/same-company/company-hq.
+// CompanyHQDir returns the base path for bot data files.
+// Uses SAME_COMPANY_HQ env var if set, otherwise defaults to ~/.same/data.
 func CompanyHQDir() string {
 	if dir := os.Getenv("SAME_COMPANY_HQ"); dir != "" {
 		return dir
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, "Projects", "same-company", "company-hq")
+	return filepath.Join(home, ".same", "data")
 }
 
 // OutboundDir returns the full path to the outbound message directory.

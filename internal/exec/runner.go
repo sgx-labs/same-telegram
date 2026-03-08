@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -136,8 +137,11 @@ type claudeJSONOutput struct {
 	IsError   bool   `json:"is_error"`
 }
 
-// DefaultMCPConfigPath is the default location for the SAME MCP server config.
-const DefaultMCPConfigPath = "/workspace/code/statelessagent/.mcp.json"
+// defaultMCPConfigPath returns the default location for the SAME MCP server config.
+func defaultMCPConfigPath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".same", ".mcp.json")
+}
 
 // RunClaude sends a prompt to the `claude` CLI and returns the response.
 // It accepts optional ClaudeOptions for MCP config and session resumption.
@@ -171,7 +175,7 @@ func RunClaudeWithSession(prompt string, opts ...ClaudeOptions) (*ClaudeResult, 
 	// Add MCP config if specified and file exists
 	mcpPath := opt.MCPConfigPath
 	if mcpPath == "" {
-		mcpPath = DefaultMCPConfigPath
+		mcpPath = defaultMCPConfigPath()
 	}
 	if _, err := os.Stat(mcpPath); err == nil {
 		args = append(args, "--mcp-config", mcpPath)

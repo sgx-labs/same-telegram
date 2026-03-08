@@ -2,7 +2,7 @@
 # start-bot.sh — Start same-telegram with restart loop and PID tracking
 set -euo pipefail
 
-PROJ_DIR="/workspace/code/same-telegram"
+PROJ_DIR="${PROJ_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 PID_DIR="$HOME/.same"
 PID_FILE="$PID_DIR/telegram.pid"
 BINARY="$PROJ_DIR/same-telegram"
@@ -10,8 +10,8 @@ MAX_RETRIES=5
 RETRY_WAIT=5
 
 # Required env vars
-export SAME_COMPANY_HQ="${SAME_COMPANY_HQ:-/workspace/same-company/company-hq}"
-export VAULT_PATH="${VAULT_PATH:-/workspace/code/statelessagent}"
+export SAME_COMPANY_HQ="${SAME_COMPANY_HQ:-$HOME/.same/data}"
+export VAULT_PATH="${VAULT_PATH:-$HOME/.same/vault}"
 
 mkdir -p "$PID_DIR"
 

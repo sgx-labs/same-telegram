@@ -234,7 +234,7 @@ func moveReview(arg, action string) (string, error) {
 	return fmt.Sprintf("*%s* `%s`.", label, f.Name), nil
 }
 
-// cmdDecisionsFile shows the contents of company-hq/decisions.md.
+// cmdDecisionsFile shows the contents of decisions.md.
 func cmdDecisionsFile() ([]string, error) {
 	path := filepath.Join(msgbox.CompanyHQDir(), "decisions.md")
 	data, err := os.ReadFile(path)

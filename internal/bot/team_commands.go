@@ -18,7 +18,7 @@ import (
 // to extract the agent role portion.
 var agentRolePattern = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}-(.+?)-[^-]+\.md$`)
 
-// cmdTeam returns agent team status by reading real state from company-hq.
+// cmdTeam returns agent team status by reading state from the data directory.
 func cmdTeam() (string, error) {
 	hq := msgbox.CompanyHQDir()
 	var b strings.Builder
@@ -309,7 +309,7 @@ func (b *Bot) handleDecisionAction(chatID int64, decisionID, action string) {
 	b.sendMarkdown(chatID, fmt.Sprintf("*%s* Decision `%s`.", label, escapeMarkdown(decisionID)))
 }
 
-// cmdAnnounce writes a CEO announcement to company-hq/announcements/.
+// cmdAnnounce writes an announcement to the announcements directory.
 func cmdAnnounce(text string) (string, error) {
 	text = strings.TrimSpace(text)
 	if text == "" {

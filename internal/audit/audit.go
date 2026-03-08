@@ -47,7 +47,7 @@ func truncate(s string, maxLen int) string {
 // reviewAuditPath returns the path to the review audit log.
 func reviewAuditPath() string {
 	home, _ := os.UserHomeDir()
-	dir := filepath.Join(home, "Projects", "same-company", "company-hq", "reviews")
+	dir := filepath.Join(home, ".same", "data", "reviews")
 	// Allow override via environment variable
 	if hq := os.Getenv("SAME_COMPANY_HQ"); hq != "" {
 		dir = filepath.Join(hq, "reviews")

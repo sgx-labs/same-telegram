@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "=== SAME Dev Team - Post-Create Setup ==="
+echo "=== SAME Telegram Bot - Post-Create Setup ==="
 
 # Install Claude Code CLI (Node available via devcontainer feature)
 echo "Installing Claude Code CLI..."
@@ -15,25 +15,10 @@ curl -fsSL https://ollama.com/install.sh | sh 2>/dev/null || echo "Ollama instal
 mkdir -p ~/.same
 chmod 700 ~/.same
 
-# Install Go deps for all projects
-for dir in /workspace/code/statelessagent /workspace/code/same-telegram; do
-  if [ -f "$dir/go.mod" ]; then
-    echo "Installing Go deps for $(basename $dir)..."
-    cd "$dir" && go mod download
-  fi
-done
-
-# Build and install SAME CLI
-if [ -f "/workspace/code/statelessagent/Makefile" ]; then
-  echo "Building SAME CLI..."
-  cd /workspace/code/statelessagent && make build 2>/dev/null && sudo cp build/same /usr/local/bin/same && echo "SAME $(same version) installed"
-  # Install guard hooks on all repos
-  for repo in /workspace/code/statelessagent /workspace/code/same-telegram /workspace/code/SeedVaults /workspace/code/statelessagent.com; do
-    if [ -d "$repo/.git" ]; then
-      cd "$repo" && same guard install --force 2>/dev/null && same guard push-install --force 2>/dev/null
-    fi
-  done
-  echo "SAME Guard installed on all repos"
+# Install Go deps
+if [ -f "go.mod" ]; then
+  echo "Installing Go deps..."
+  go mod download
 fi
 
 # Set up git identity for dev
@@ -42,15 +27,15 @@ git config --global user.email "dev@sgx-labs.dev"
 git config --global init.defaultBranch main
 
 # Build same-telegram
-if [ -f "/workspace/code/same-telegram/Makefile" ]; then
+if [ -f "Makefile" ]; then
   echo "Building same-telegram..."
-  cd /workspace/code/same-telegram && make build 2>/dev/null && echo "same-telegram built"
+  make build 2>/dev/null && echo "same-telegram built"
 fi
 
 # Start Telegram bot in background (if config exists)
 if [ -f "$HOME/.same/telegram.toml" ]; then
   echo "Starting Telegram bot..."
-  /workspace/code/same-telegram/scripts/start-bot.sh
+  scripts/start-bot.sh
 fi
 
 # Pull a small ollama model for local AI testing (background, non-blocking)
@@ -61,18 +46,9 @@ fi
 
 echo ""
 echo "==========================================="
-echo "  SAME Dev Team - Ready"
+echo "  SAME Telegram Bot - Ready"
 echo "==========================================="
 echo ""
-echo "  Repos:"
-echo "    /workspace/code/statelessagent    (core CLI)"
-echo "    /workspace/code/same-telegram     (Telegram plugin)"
-echo "    /workspace/code/statelessagent.com (website)"
-echo "    /workspace/same-company           (company HQ)"
-echo ""
 echo "  Quick start:"
-echo "    cd /workspace/code/same-telegram && make build && ./same-telegram serve --fg"
-echo ""
-echo "  To open multi-root workspace:"
-echo "    File > Open Workspace from File > /workspace/code/same-telegram/.devcontainer/same.code-workspace"
+echo "    make build && ./same-telegram serve --fg"
 echo ""

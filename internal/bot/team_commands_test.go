@@ -133,10 +133,10 @@ func TestCmdAnnounceWhitespace(t *testing.T) {
 
 func TestCmdAnnounceWritesFile(t *testing.T) {
 	// This test writes to the real announcements dir.
-	// Skip if company-hq doesn't exist.
+	// Skip if data directory doesn't exist.
 	dir := filepath.Join(msgbox.CompanyHQDir(), "announcements")
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		t.Skip("company-hq/announcements/ not found, skipping write test")
+		t.Skip("announcements/ directory not found, skipping write test")
 	}
 
 	text, err := cmdAnnounce("Test announcement from unit test")

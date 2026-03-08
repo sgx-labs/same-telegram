@@ -482,8 +482,8 @@ func TestOutboundInboundDirPaths(t *testing.T) {
 	if !strings.Contains(inbound, "messages/inbound") {
 		t.Errorf("InboundDir = %q, expected to contain messages/inbound", inbound)
 	}
-	if !strings.Contains(outbound, "company-hq") {
-		t.Errorf("OutboundDir = %q, expected to be under company-hq", outbound)
+	if !strings.Contains(outbound, ".same") {
+		t.Errorf("OutboundDir = %q, expected to be under .same", outbound)
 	}
 }
 

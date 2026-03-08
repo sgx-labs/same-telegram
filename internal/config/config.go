@@ -65,7 +65,7 @@ type DigestConfig struct {
 	Time    string `toml:"time"` // HH:MM in local time
 }
 
-// WatchConfig controls file-watching for company-hq directories.
+// WatchConfig controls file-watching for data directories.
 type WatchConfig struct {
 	Enabled   bool              `toml:"enabled"`
 	ExtraDirs map[string]string `toml:"extra_dirs"` // path -> category (review/decision/report)
@@ -267,7 +267,7 @@ enabled = true
 time = "08:00"  # HH:MM in local time
 
 [watch]
-# Watch company-hq directories for new review/decision/report files
+# Watch data directories for new review/decision/report files
 enabled = true
 # Add extra directories to watch (path = category):
 # [watch.extra_dirs]

@@ -14,7 +14,7 @@ import (
 	"github.com/sgx-labs/same-telegram/internal/bot"
 )
 
-// ReviewCategory describes which company-hq subdirectory a file came from.
+// ReviewCategory describes which watched subdirectory a file came from.
 type ReviewCategory string
 
 const (
@@ -30,8 +30,8 @@ type watchedDir struct {
 	Category ReviewCategory
 }
 
-// ReviewWatcher watches company-hq directories for new files and notifies
-// the CEO via Telegram.
+// ReviewWatcher watches configured directories for new files and sends
+// Telegram notifications.
 type ReviewWatcher struct {
 	bot    *bot.Bot
 	logger *log.Logger
@@ -43,7 +43,7 @@ type ReviewWatcher struct {
 }
 
 // NewReviewWatcher creates a watcher for review, decision, and reply directories.
-// baseDir is the company-hq root (from SAME_COMPANY_HQ env or config).
+// baseDir is the data root (from SAME_COMPANY_HQ env or config).
 // extraDirs allows adding custom watched directories via config.
 func NewReviewWatcher(b *bot.Bot, logger *log.Logger, baseDir string, extraDirs map[string]ReviewCategory) *ReviewWatcher {
 	dirs := []watchedDir{
@@ -295,14 +295,14 @@ func (c ReviewCategory) String() string {
 	}
 }
 
-// CompanyHQDir returns the base path to company-hq.
-// Uses SAME_COMPANY_HQ env var if set, otherwise defaults to ~/Projects/same-company/company-hq.
+// CompanyHQDir returns the base path for bot data files.
+// Uses SAME_COMPANY_HQ env var if set, otherwise defaults to ~/.same/data.
 func CompanyHQDir() string {
 	if dir := os.Getenv("SAME_COMPANY_HQ"); dir != "" {
 		return dir
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, "Projects", "same-company", "company-hq")
+	return filepath.Join(home, ".same", "data")
 }
 
 // FormatReviewNotification builds a Telegram-ready notification string.

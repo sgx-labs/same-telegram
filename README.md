@@ -156,7 +156,7 @@ make install   # Install to ~/go/bin/
 make release   # Cross-compile for all platforms
 ```
 
-Requires Go 1.21+.
+Requires Go 1.25+.
 
 ## Security
 

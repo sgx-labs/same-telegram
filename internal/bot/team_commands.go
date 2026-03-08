@@ -281,8 +281,8 @@ func (b *Bot) handleDecisionAction(chatID int64, decisionID, action string) {
 		return
 	}
 
-	// Append CEO decision stamp to the file
-	stamp := fmt.Sprintf("\n\n---\n**CEO Decision:** %s at %s\n",
+	// Append admin decision stamp to the file
+	stamp := fmt.Sprintf("\n\n---\n**Admin Decision:** %s at %s\n",
 		strings.ToUpper(action), time.Now().Format(time.RFC3339))
 	f, err := os.OpenFile(srcPath, os.O_APPEND|os.O_WRONLY, 0o644)
 	if err == nil {
@@ -325,7 +325,7 @@ func cmdAnnounce(text string) (string, error) {
 	filename := fmt.Sprintf("%s.md", timestamp)
 	path := filepath.Join(dir, filename)
 
-	content := fmt.Sprintf("# CEO Announcement\n\n%s\n\n---\n*Posted: %s*\n",
+	content := fmt.Sprintf("# Admin Announcement\n\n%s\n\n---\n*Posted: %s*\n",
 		text, time.Now().Format(time.RFC3339))
 
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {

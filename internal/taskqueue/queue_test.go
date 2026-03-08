@@ -6,18 +6,18 @@ import (
 	"testing"
 )
 
-// setupTestDirs creates a temp directory and sets SAME_COMPANY_HQ to point to it.
+// setupTestDirs creates a temp directory and sets SAME_DATA_DIR to point to it.
 // Returns a cleanup function.
 func setupTestDirs(t *testing.T) func() {
 	t.Helper()
 	tmpDir := t.TempDir()
-	old := os.Getenv("SAME_COMPANY_HQ")
-	os.Setenv("SAME_COMPANY_HQ", tmpDir)
+	old := os.Getenv("SAME_DATA_DIR")
+	os.Setenv("SAME_DATA_DIR", tmpDir)
 	return func() {
 		if old == "" {
-			os.Unsetenv("SAME_COMPANY_HQ")
+			os.Unsetenv("SAME_DATA_DIR")
 		} else {
-			os.Setenv("SAME_COMPANY_HQ", old)
+			os.Setenv("SAME_DATA_DIR", old)
 		}
 	}
 }
@@ -54,7 +54,7 @@ func TestCreateAndRead(t *testing.T) {
 	cleanup := setupTestDirs(t)
 	defer cleanup()
 
-	task := NewTask("Test task", "Do something", "backend", PriorityNormal, "ceo")
+	task := NewTask("Test task", "Do something", "backend", PriorityNormal, "admin")
 
 	if err := Create(task); err != nil {
 		t.Fatalf("Create: %v", err)
@@ -88,7 +88,7 @@ func TestList(t *testing.T) {
 
 	// Create 3 tasks
 	for i := 0; i < 3; i++ {
-		task := NewTask("Task", "desc", "", PriorityNormal, "ceo")
+		task := NewTask("Task", "desc", "", PriorityNormal, "admin")
 		if err := Create(task); err != nil {
 			t.Fatalf("Create task %d: %v", i, err)
 		}
@@ -116,7 +116,7 @@ func TestListAll(t *testing.T) {
 	cleanup := setupTestDirs(t)
 	defer cleanup()
 
-	task := NewTask("Task 1", "desc", "", PriorityNormal, "ceo")
+	task := NewTask("Task 1", "desc", "", PriorityNormal, "admin")
 	if err := Create(task); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestMove(t *testing.T) {
 	cleanup := setupTestDirs(t)
 	defer cleanup()
 
-	task := NewTask("Test move", "desc", "", PriorityNormal, "ceo")
+	task := NewTask("Test move", "desc", "", PriorityNormal, "admin")
 	if err := Create(task); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -172,13 +172,13 @@ func TestMoveInvalidTransition(t *testing.T) {
 	cleanup := setupTestDirs(t)
 	defer cleanup()
 
-	task := NewTask("Test invalid", "desc", "", PriorityNormal, "ceo")
+	task := NewTask("Test invalid", "desc", "", PriorityNormal, "admin")
 	if err := Create(task); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
 	// Try invalid transition: queued -> done
-	err := Move(task.ID, StateQueued, StateDone, "ceo", "skip")
+	err := Move(task.ID, StateQueued, StateDone, "admin", "skip")
 	if err == nil {
 		t.Error("expected error for invalid transition")
 	}

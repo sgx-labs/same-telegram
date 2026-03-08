@@ -74,7 +74,7 @@ func TestValidateTransition(t *testing.T) {
 }
 
 func TestTaskJSONRoundTrip(t *testing.T) {
-	task := NewTask("Test task", "A test description", "backend", PriorityHigh, "ceo")
+	task := NewTask("Test task", "A test description", "backend", PriorityHigh, "admin")
 
 	data, err := task.MarshalJSON()
 	if err != nil {
@@ -113,7 +113,7 @@ func TestTaskJSONRoundTrip(t *testing.T) {
 }
 
 func TestTaskTransition(t *testing.T) {
-	task := NewTask("Test", "desc", "", PriorityNormal, "ceo")
+	task := NewTask("Test", "desc", "", PriorityNormal, "admin")
 
 	// Valid transition
 	err := task.Transition(StateAssigned, "dispatcher", "Matched to backend")
@@ -128,7 +128,7 @@ func TestTaskTransition(t *testing.T) {
 	}
 
 	// Invalid transition
-	err = task.Transition(StateDone, "ceo", "skip ahead")
+	err = task.Transition(StateDone, "admin", "skip ahead")
 	if err == nil {
 		t.Error("expected error for invalid transition, got nil")
 	}
@@ -138,7 +138,7 @@ func TestTaskTransition(t *testing.T) {
 }
 
 func TestNewTaskDefaults(t *testing.T) {
-	task := NewTask("Title", "Desc", "", "", "ceo")
+	task := NewTask("Title", "Desc", "", "", "admin")
 
 	if task.Priority != PriorityNormal {
 		t.Errorf("expected default priority normal, got %s", task.Priority)

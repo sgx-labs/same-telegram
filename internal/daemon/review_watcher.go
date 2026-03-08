@@ -43,7 +43,7 @@ type ReviewWatcher struct {
 }
 
 // NewReviewWatcher creates a watcher for review, decision, and reply directories.
-// baseDir is the data root (from SAME_COMPANY_HQ env or config).
+// baseDir is the data root (from SAME_DATA_DIR env or config).
 // extraDirs allows adding custom watched directories via config.
 func NewReviewWatcher(b *bot.Bot, logger *log.Logger, baseDir string, extraDirs map[string]ReviewCategory) *ReviewWatcher {
 	dirs := []watchedDir{
@@ -293,16 +293,6 @@ func (c ReviewCategory) String() string {
 	default:
 		return string(c)
 	}
-}
-
-// CompanyHQDir returns the base path for bot data files.
-// Uses SAME_COMPANY_HQ env var if set, otherwise defaults to ~/.same/data.
-func CompanyHQDir() string {
-	if dir := os.Getenv("SAME_COMPANY_HQ"); dir != "" {
-		return dir
-	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".same", "data")
 }
 
 // FormatReviewNotification builds a Telegram-ready notification string.

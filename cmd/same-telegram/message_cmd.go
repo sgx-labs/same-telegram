@@ -18,9 +18,9 @@ var (
 
 var messageCmd = &cobra.Command{
 	Use:   "message",
-	Short: "Send a message to the CEO via Telegram",
+	Short: "Send a message to the admin via Telegram",
 	Long: `Writes a JSON message to the outbound directory for the daemon to pick up
-and send to the CEO via Telegram.
+and send to the admin via Telegram.
 
 Example:
   same-telegram message --from backend-dev --type question --subject "Redis?" --body "Can we use Redis for caching?"`,

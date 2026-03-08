@@ -10,7 +10,7 @@ MAX_RETRIES=5
 RETRY_WAIT=5
 
 # Required env vars
-export SAME_COMPANY_HQ="${SAME_COMPANY_HQ:-$HOME/.same/data}"
+export SAME_DATA_DIR="${SAME_DATA_DIR:-$HOME/.same/data}"
 export VAULT_PATH="${VAULT_PATH:-$HOME/.same/vault}"
 
 mkdir -p "$PID_DIR"

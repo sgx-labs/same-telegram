@@ -15,7 +15,7 @@ const (
 	inboundDir    = "messages/inbound"
 )
 
-// Message types for agent-to-CEO communication.
+// Message types for agent-to-admin communication.
 const (
 	MsgTypeQuestion = "question"
 	MsgTypeStatus   = "status"
@@ -31,7 +31,7 @@ type Message struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
-// Reply is written by the daemon to the inbound directory when the CEO responds.
+// Reply is written by the daemon to the inbound directory when the admin responds.
 type Reply struct {
 	To        string    `json:"to"`
 	InReplyTo string    `json:"in_reply_to"` // original message filename
@@ -39,15 +39,18 @@ type Reply struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
-// CompanyHQDir returns the base path for bot data files.
-// Uses SAME_COMPANY_HQ env var if set, otherwise defaults to ~/.same/data.
-func CompanyHQDir() string {
-	if dir := os.Getenv("SAME_COMPANY_HQ"); dir != "" {
+// DataDir returns the base path for bot data files.
+// Uses SAME_DATA_DIR env var if set, otherwise defaults to ~/.same/data.
+func DataDir() string {
+	if dir := os.Getenv("SAME_DATA_DIR"); dir != "" {
 		return dir
 	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".same", "data")
 }
+
+// CompanyHQDir is a deprecated alias for DataDir.
+func CompanyHQDir() string { return DataDir() }
 
 // OutboundDir returns the full path to the outbound message directory.
 func OutboundDir() string {
@@ -87,7 +90,7 @@ func ReadMessage(path string) (*Message, error) {
 	return &m, nil
 }
 
-// WriteReply writes a CEO reply to the inbound directory.
+// WriteReply writes an admin reply to the inbound directory.
 func WriteReply(reply *Reply) error {
 	if err := EnsureDirs(); err != nil {
 		return err

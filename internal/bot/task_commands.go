@@ -45,7 +45,7 @@ func cmdCreateTask(description string) (string, error) {
 		return "Task description cannot be empty.", nil
 	}
 
-	task := taskqueue.NewTask(title, title, assignedTo, priority, "ceo")
+	task := taskqueue.NewTask(title, title, assignedTo, priority, "admin")
 
 	if err := taskqueue.Create(task); err != nil {
 		return "", fmt.Errorf("create task: %w", err)
@@ -142,7 +142,7 @@ func cmdCancelTask(identifier string) (string, error) {
 	}
 
 	// Move the task to failed
-	err = taskqueue.Move(task.ID, task.State, taskqueue.StateFailed, "ceo", "Cancelled by CEO")
+	err = taskqueue.Move(task.ID, task.State, taskqueue.StateFailed, "admin", "Cancelled by admin")
 	if err != nil {
 		return "", fmt.Errorf("cancel task: %w", err)
 	}

@@ -266,7 +266,7 @@ func TestDecisionPreviewSkipsHorizontalRules(t *testing.T) {
 
 func TestCmdTeamOutputFormat(t *testing.T) {
 	tmpDir := t.TempDir()
-	t.Setenv("SAME_COMPANY_HQ", tmpDir)
+	t.Setenv("SAME_DATA_DIR", tmpDir)
 
 	// Create review dirs with files
 	os.MkdirAll(filepath.Join(tmpDir, "reviews", "pending"), 0o755)
@@ -288,7 +288,7 @@ func TestCmdTeamOutputFormat(t *testing.T) {
 
 func TestCmdAnnounceWritesToTempDir(t *testing.T) {
 	tmpDir := t.TempDir()
-	t.Setenv("SAME_COMPANY_HQ", tmpDir)
+	t.Setenv("SAME_DATA_DIR", tmpDir)
 
 	// Create the announcements directory
 	annDir := filepath.Join(tmpDir, "announcements")
@@ -312,7 +312,7 @@ func TestCmdAnnounceWritesToTempDir(t *testing.T) {
 		data, _ := os.ReadFile(filepath.Join(annDir, e.Name()))
 		if strings.Contains(string(data), "Important update for all agents") {
 			found = true
-			if !strings.Contains(string(data), "# CEO Announcement") {
+			if !strings.Contains(string(data), "# Admin Announcement") {
 				t.Error("Announcement file missing header")
 			}
 			if !strings.Contains(string(data), "Posted:") {
@@ -327,7 +327,7 @@ func TestCmdAnnounceWritesToTempDir(t *testing.T) {
 
 func TestCmdAnnounceMarkdownSpecialChars(t *testing.T) {
 	tmpDir := t.TempDir()
-	t.Setenv("SAME_COMPANY_HQ", tmpDir)
+	t.Setenv("SAME_DATA_DIR", tmpDir)
 
 	annDir := filepath.Join(tmpDir, "announcements")
 	os.MkdirAll(annDir, 0o755)
@@ -343,7 +343,7 @@ func TestCmdAnnounceMarkdownSpecialChars(t *testing.T) {
 
 func TestCmdAnnounceFilenameFormat(t *testing.T) {
 	tmpDir := t.TempDir()
-	t.Setenv("SAME_COMPANY_HQ", tmpDir)
+	t.Setenv("SAME_DATA_DIR", tmpDir)
 
 	annDir := filepath.Join(tmpDir, "announcements")
 	os.MkdirAll(annDir, 0o755)
@@ -378,7 +378,7 @@ func TestHelpTextIncludesTeamCommands(t *testing.T) {
 
 func TestCmdDecisionsSkipsGitkeep(t *testing.T) {
 	tmpDir := t.TempDir()
-	t.Setenv("SAME_COMPANY_HQ", tmpDir)
+	t.Setenv("SAME_DATA_DIR", tmpDir)
 
 	pendingDir := filepath.Join(tmpDir, "decisions", "pending")
 	os.MkdirAll(pendingDir, 0o755)
@@ -399,7 +399,7 @@ func TestCmdDecisionsSkipsGitkeep(t *testing.T) {
 
 func TestCmdDecisionsSkipsDirectories(t *testing.T) {
 	tmpDir := t.TempDir()
-	t.Setenv("SAME_COMPANY_HQ", tmpDir)
+	t.Setenv("SAME_DATA_DIR", tmpDir)
 
 	pendingDir := filepath.Join(tmpDir, "decisions", "pending")
 	os.MkdirAll(pendingDir, 0o755)
@@ -421,7 +421,7 @@ func TestCmdDecisionsSkipsDirectories(t *testing.T) {
 
 func TestCmdDecisionsMultipleFiles(t *testing.T) {
 	tmpDir := t.TempDir()
-	t.Setenv("SAME_COMPANY_HQ", tmpDir)
+	t.Setenv("SAME_DATA_DIR", tmpDir)
 
 	pendingDir := filepath.Join(tmpDir, "decisions", "pending")
 	os.MkdirAll(pendingDir, 0o755)
@@ -444,7 +444,7 @@ func TestCmdDecisionsMultipleFiles(t *testing.T) {
 
 func TestCmdDecisionsNonexistentDir(t *testing.T) {
 	tmpDir := t.TempDir()
-	t.Setenv("SAME_COMPANY_HQ", tmpDir)
+	t.Setenv("SAME_DATA_DIR", tmpDir)
 
 	text, decisions, err := cmdDecisions()
 	if err != nil {
@@ -460,7 +460,7 @@ func TestCmdDecisionsNonexistentDir(t *testing.T) {
 
 func TestCmdTeamWithReviewFiles(t *testing.T) {
 	tmpDir := t.TempDir()
-	t.Setenv("SAME_COMPANY_HQ", tmpDir)
+	t.Setenv("SAME_DATA_DIR", tmpDir)
 
 	// Create review dirs with agent-named files
 	pendingDir := filepath.Join(tmpDir, "reviews", "pending")
@@ -505,7 +505,7 @@ func TestCmdTeamWithReviewFiles(t *testing.T) {
 
 func TestCmdTeamEmptyHQ(t *testing.T) {
 	tmpDir := t.TempDir()
-	t.Setenv("SAME_COMPANY_HQ", tmpDir)
+	t.Setenv("SAME_DATA_DIR", tmpDir)
 
 	text, err := cmdTeam()
 	if err != nil {

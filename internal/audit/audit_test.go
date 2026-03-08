@@ -10,7 +10,7 @@ import (
 func TestLogReviewAction(t *testing.T) {
 	// Set up temp data dir
 	tmpDir := t.TempDir()
-	t.Setenv("SAME_COMPANY_HQ", tmpDir)
+	t.Setenv("SAME_DATA_DIR", tmpDir)
 
 	LogReviewAction("approved", "proposal.md", "intent")
 	LogReviewAction("approved", "proposal.md", "ok")

@@ -10,7 +10,7 @@ import (
 	"github.com/sgx-labs/same-telegram/internal/msgbox"
 )
 
-// pendingReply tracks which agent message a CEO reply should be attributed to.
+// pendingReply tracks which agent message an admin reply should be attributed to.
 type pendingReply struct {
 	filename string
 	agent    string
@@ -68,7 +68,7 @@ func (b *Bot) SendAgentMessage(msg *msgbox.Message, filename string) {
 }
 
 // HandleReply checks if an incoming message is a reply to an agent message
-// and writes the CEO response to the inbound directory.
+// and writes the admin response to the inbound directory.
 func (b *Bot) HandleReply(msg *tgbotapi.Message) bool {
 	if msg.ReplyToMessage == nil {
 		return false

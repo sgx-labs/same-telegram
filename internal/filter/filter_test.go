@@ -719,7 +719,7 @@ func TestSanitizeTelegramBotTokenInTOMLConfig(t *testing.T) {
 	f := New()
 	input := `[bot]
 token = "1234567890:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw"
-allowed_user_ids = [95419682]
+allowed_user_ids = [123456789]
 
 [notify]
 on_hook = true`
@@ -744,11 +744,11 @@ func TestSanitizeTelegramUserID(t *testing.T) {
 		input  string
 		redact bool
 	}{
-		{"user_id in config", "user_id = 95419682", true},
-		{"USER_ID uppercase", "USER_ID: 95419682", true},
+		{"user_id in config", "user_id = 123456789", true},
+		{"USER_ID uppercase", "USER_ID: 123456789", true},
 		{"chat_id", "chat_id = 12345678", true},
-		{"allowed_user with bracket", "allowed_user_ids = [95419682]", true},
-		{"userId camelCase", "userId = 95419682", true},
+		{"allowed_user with bracket", "allowed_user_ids = [123456789]", true},
+		{"userId camelCase", "userId = 123456789", true},
 		// Should not catch unrelated numbers
 		{"plain number", "Port 8080 is open", false},
 		{"version number", "Version 12345678", false},
@@ -816,7 +816,7 @@ func TestSanitizeTelegramTokenInGitDiff(t *testing.T) {
 @@ -0,0 +1,5 @@
 +[bot]
 +token = "1234567890:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw"
-+allowed_user_ids = [95419682]`
++allowed_user_ids = [123456789]`
 
 	got := f.Sanitize(input)
 	if strings.Contains(got, "1234567890:AA") {

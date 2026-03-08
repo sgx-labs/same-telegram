@@ -49,8 +49,8 @@ func reviewAuditPath() string {
 	home, _ := os.UserHomeDir()
 	dir := filepath.Join(home, ".same", "data", "reviews")
 	// Allow override via environment variable
-	if hq := os.Getenv("SAME_COMPANY_HQ"); hq != "" {
-		dir = filepath.Join(hq, "reviews")
+	if dataDir := os.Getenv("SAME_DATA_DIR"); dataDir != "" {
+		dir = filepath.Join(dataDir, "reviews")
 	}
 	return filepath.Join(dir, "audit.log")
 }

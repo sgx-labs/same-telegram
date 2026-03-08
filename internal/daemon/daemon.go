@@ -66,7 +66,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	// Start review watcher if enabled
 	if d.cfg.Watch.Enabled {
-		baseDir := CompanyHQDir()
+		baseDir := msgbox.DataDir()
 		extraDirs := make(map[string]ReviewCategory)
 		for path, cat := range d.cfg.Watch.ExtraDirs {
 			extraDirs[path] = ReviewCategory(cat)

@@ -1,25 +1,45 @@
-# same-telegram
+# SAME Telegram Bot
 
-Telegram plugin for SAME (Stateless Agent Memory Engine). Turns Telegram into a remote management GUI for SAME vaults.
+Telegram interface for SAME (Stateless Agent Memory Engine). Provides remote vault management through Telegram.
+
+**License:** BSL-1.1
 
 ## Architecture
 
-- **Single binary, dual mode**: `same-telegram hook` (plugin) + `same-telegram serve` (daemon)
-- **Hook -> daemon**: Unix socket at `~/.same/telegram.sock` (length-prefixed JSON)
-- **Management**: Daemon shells out to `same` CLI — no SAME internals imported
-- **Config**: `~/.same/telegram.toml` (TOML)
+- **Dual mode**: `same-telegram hook` (SAME plugin) and `same-telegram serve` (standalone daemon)
+- **Communication**: Unix socket at `~/.same/telegram.sock` (length-prefixed JSON)
+- **Management**: Shells out to the `same` CLI — no SAME internals imported
+- **Config**: `~/.same/telegram.toml`
+- **Security**: All interactions are allowlist-gated by Telegram user ID
 
-## Build
+## Build and Test
 
 ```bash
-make build    # builds ./same-telegram
-make test     # runs all tests
-make install  # copies to ~/go/bin/
+go build ./cmd/same-telegram   # build the binary
+go test ./...                  # run all tests
 ```
 
-## Key Patterns
+Requires Go 1.25+.
 
-- Plugin receives `HookInput` JSON on stdin, outputs `HookOutput` JSON on stdout
-- Daemon lifecycle mirrors SAME's serve_cmd.go: PID file, background re-exec, SIGTERM shutdown
-- All Telegram interactions are whitelist-gated by user ID
-- Notifications silently drop if daemon isn't running (hooks must not block)
+## Project Structure
+
+| Directory | Purpose |
+|-----------|---------|
+| `cmd/same-telegram/` | CLI entrypoint |
+| `internal/bot/` | Telegram bot logic, command handlers |
+| `internal/daemon/` | Daemon lifecycle, socket server |
+
+## Code Style
+
+- Standard Go conventions (`gofmt`, `go vet`)
+- Conventional commits (e.g., `feat:`, `fix:`, `docs:`)
+
+## Contributing
+
+1. Fork and create a feature branch
+2. Ensure `go test ./...` passes
+3. Open a pull request against `main`
+
+## Contact
+
+dev@thirty3labs.com

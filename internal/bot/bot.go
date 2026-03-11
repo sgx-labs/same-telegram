@@ -4,15 +4,19 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
+	"github.com/sgx-labs/same-telegram/internal/analytics"
 	"github.com/sgx-labs/same-telegram/internal/audit"
 	"github.com/sgx-labs/same-telegram/internal/config"
 	"github.com/sgx-labs/same-telegram/internal/filter"
+	"github.com/sgx-labs/same-telegram/internal/machines"
 	"github.com/sgx-labs/same-telegram/internal/notify"
 	"github.com/sgx-labs/same-telegram/internal/store"
 )
@@ -37,6 +41,14 @@ type Bot struct {
 	auditLog      *audit.Logger
 	limiter       *rateLimiter
 	inbound       *inboundLimiter
+
+	// orchestrator manages per-user workspace machines (nil if not in workspace mode).
+	orchestrator *machines.Orchestrator
+	// machineStore is the backing store for the orchestrator (nil if not in workspace mode).
+	machineStore *machines.SQLiteStore
+
+	// analytics tracks anonymous usage events (nil if init fails — non-fatal).
+	analytics *analytics.Store
 
 	// inflightMu protects the inflight map.
 	inflightMu sync.Mutex
@@ -77,7 +89,7 @@ func New(cfg *config.Config, logger *log.Logger) (*Bot, error) {
 		logger.Printf("Running in PUBLIC mode with stricter rate limits")
 	}
 
-	return &Bot{
+	b := &Bot{
 		api:          api,
 		cfg:          cfg,
 		logger:       logger,
@@ -94,12 +106,68 @@ func New(cfg *config.Config, logger *log.Logger) (*Bot, error) {
 		auditLog:     audit.NewLogger(),
 		limiter:      limiter,
 		inbound:      inbound,
-	}, nil
+	}
+
+	// Initialize the machine orchestrator in workspace mode.
+	if cfg.Bot.IsWorkspaceMode() {
+		if err := b.initOrchestrator(); err != nil {
+			return nil, fmt.Errorf("init orchestrator: %w", err)
+		}
+	}
+
+	// Initialize analytics store (non-fatal — bot works without it).
+	analyticsPath := expandHome("~/.same/analytics.db")
+	if a, err := analytics.New(analyticsPath); err != nil {
+		logger.Printf("Analytics disabled: %v", err)
+	} else {
+		b.analytics = a
+		logger.Printf("Analytics enabled: %s", analyticsPath)
+	}
+
+	return b, nil
 }
 
 // isPublicMode returns true when the bot is running in public (restricted) mode.
 func (b *Bot) isPublicMode() bool {
 	return b.cfg.Bot.IsPublicMode()
+}
+
+// isWorkspaceMode returns true when the bot is running in workspace mode.
+func (b *Bot) isWorkspaceMode() bool {
+	return b.cfg.Bot.IsWorkspaceMode()
+}
+
+// initOrchestrator creates the MachineStore and Fly Machines client for workspace mode.
+func (b *Bot) initOrchestrator() error {
+	dbPath := expandHome(b.cfg.Bot.MachineDBPath)
+
+	ms, err := machines.NewSQLiteStore(dbPath)
+	if err != nil {
+		return fmt.Errorf("open machine store: %w", err)
+	}
+	b.machineStore = ms
+
+	client := machines.NewClient(
+		b.cfg.Bot.FlyAppName,
+		b.cfg.Bot.FlyAPIToken,
+		b.cfg.Bot.FlyImage,
+		b.cfg.Bot.FlyRegion,
+	)
+	b.orchestrator = machines.NewOrchestrator(client, ms)
+
+	b.logger.Printf("Workspace mode: orchestrator ready (app=%s region=%s db=%s)",
+		b.cfg.Bot.FlyAppName, b.cfg.Bot.FlyRegion, dbPath)
+	return nil
+}
+
+// expandHome replaces a leading "~/" with the user's home directory.
+func expandHome(path string) string {
+	if strings.HasPrefix(path, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, path[2:])
+		}
+	}
+	return path
 }
 
 // Run starts the bot polling loop. Blocks until context is cancelled.
@@ -115,7 +183,7 @@ func (b *Bot) Run(ctx context.Context) error {
 	b.onboarding.StartEviction(ctx)
 
 	// Register commands with Telegram's "/" menu, filtered by mode.
-	cmds := commandsForMode(b.isPublicMode())
+	cmds := commandsForMode(b.cfg.Bot.Mode)
 	setCmd := tgbotapi.NewSetMyCommands(cmds...)
 	if _, err := b.api.Request(setCmd); err != nil {
 		b.logger.Printf("Failed to register bot commands menu: %v", err)
@@ -127,6 +195,12 @@ func (b *Bot) Run(ctx context.Context) error {
 			b.api.StopReceivingUpdates()
 			if b.store != nil {
 				b.store.Close()
+			}
+			if b.machineStore != nil {
+				b.machineStore.Close()
+			}
+			if b.analytics != nil {
+				b.analytics.Close()
 			}
 			return ctx.Err()
 
@@ -167,8 +241,8 @@ func (b *Bot) SendNotification(n *notify.Notification) {
 
 func (b *Bot) handleUpdate(msg *tgbotapi.Message) {
 	// Security: in internal mode, silently drop messages from unknown users.
-	// In public mode, allow all users (empty whitelist = open access).
-	if !b.isPublicMode() && !b.allowedUsers[msg.From.ID] {
+	// In public and workspace modes, allow all users (open access).
+	if !b.isPublicMode() && !b.isWorkspaceMode() && !b.allowedUsers[msg.From.ID] {
 		b.logger.Printf("Dropped message from unauthorized user %d (%s)", msg.From.ID, msg.From.UserName)
 		return
 	}
@@ -192,6 +266,21 @@ func (b *Bot) handleUpdate(msg *tgbotapi.Message) {
 
 	// Non-command text
 	if msg.Text != "" {
+		// Check if user is confirming workspace destruction.
+		if b.isWorkspaceMode() && b.handleDestroyConfirmation(msg) {
+			return
+		}
+
+		// Check if user pasted an invite code.
+		if b.isWorkspaceMode() && b.handleInviteCodeInput(msg) {
+			return
+		}
+
+		// Check if user is in workspace onboarding topic step
+		if b.isWorkspaceMode() && b.handleWorkspaceTopicInput(msg) {
+			return
+		}
+
 		// Check if user is in onboarding flow (awaiting API key or model)
 		if b.handleOnboardingInput(msg) {
 			return
@@ -214,8 +303,15 @@ func (b *Bot) handleUpdate(msg *tgbotapi.Message) {
 			}
 		}
 
-		// Default: vault search (internal only — shells out to `same search`)
-		if !b.isPublicMode() {
+		// Default behavior depends on mode.
+		if b.isWorkspaceMode() {
+			if b.requiresInviteCode() && !b.hasValidInvite(msg.From.ID) {
+				b.sendMarkdown(msg.Chat.ID, "If you have an invite code, paste it here.")
+			} else {
+				b.sendMarkdown(msg.Chat.ID, "Use /start to set up your workspace.")
+			}
+		} else if !b.isPublicMode() {
+			// Internal mode: vault search (shells out to `same search`)
 			reply, err := cmdSearch(msg.Text)
 			if err != nil {
 				b.sendMarkdown(msg.Chat.ID, fmt.Sprintf("Error: %s", err))
@@ -233,7 +329,7 @@ func (b *Bot) handleUpdate(msg *tgbotapi.Message) {
 var validCallbackPattern = regexp.MustCompile(`^[a-zA-Z0-9_:.\-]{1,64}$`)
 
 func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
-	if !b.isPublicMode() && !b.allowedUsers[cb.From.ID] {
+	if !b.isPublicMode() && !b.isWorkspaceMode() && !b.allowedUsers[cb.From.ID] {
 		return
 	}
 
@@ -257,6 +353,8 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 
 	// Route callbacks by prefix
 	switch {
+	case strings.HasPrefix(cb.Data, "ws:"):
+		b.handleWorkspaceCallback(cb)
 	case strings.HasPrefix(cb.Data, "onboard:"):
 		b.handleOnboardingCallback(cb)
 	case strings.HasPrefix(cb.Data, "mode:"):

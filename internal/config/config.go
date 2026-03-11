@@ -32,7 +32,24 @@ type BotConfig struct {
 	EncryptionKey        string  `toml:"encryption_key"`
 	OwnerID              int64   `toml:"owner_id"`
 	DangerousPermissions bool    `toml:"dangerous_permissions"`
-	Mode                 string  `toml:"mode"` // "internal" (default) or "public"
+	Mode                 string  `toml:"mode"` // "internal", "public", or "workspace"
+
+	// Workspace mode settings.
+	InviteCode    string `toml:"invite_code"`     // optional invite code for registration
+	WorkspaceHost string `toml:"workspace_host"`  // hostname for Mini App (e.g., "workspace.samevault.com")
+	MaxUsers      int    `toml:"max_users"`        // max registered users (0 = unlimited)
+
+	// Fly Machines API settings (workspace mode).
+	FlyAPIToken   string `toml:"fly_api_token"`   // Fly Machines API token
+	FlyAppName    string `toml:"fly_app_name"`    // Fly app name for workspace machines
+	FlyRegion     string `toml:"fly_region"`      // default region (e.g., "iad")
+	FlyImage      string `toml:"fly_image"`       // Docker image for workspace containers
+	MachineDBPath string `toml:"machine_db_path"` // path to machine store SQLite DB
+}
+
+// IsWorkspaceMode returns true when the bot is running in workspace mode.
+func (b *BotConfig) IsWorkspaceMode() bool {
+	return b.Mode == "workspace"
 }
 
 // IsPublicMode returns true when the bot is running in public (restricted) mode.
@@ -146,29 +163,92 @@ func Load() (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("config not found at %s — run 'same-telegram setup' first", path)
+			// No config file — allow pure env-var configuration.
+			applyEnvOverrides(&cfg.Bot)
+			if cfg.Bot.Token == "" {
+				return nil, fmt.Errorf("config not found at %s and TELEGRAM_BOT_TOKEN not set", path)
+			}
+			// Skip TOML parsing, proceed to validation below.
+		} else {
+			return nil, fmt.Errorf("read config: %w", err)
 		}
-		return nil, fmt.Errorf("read config: %w", err)
-	}
+	} else {
+		md, err := toml.Decode(string(data), cfg)
+		if err != nil {
+			return nil, fmt.Errorf("parse config: %w", err)
+		}
 
-	md, err := toml.Decode(string(data), cfg)
-	if err != nil {
-		return nil, fmt.Errorf("parse config: %w", err)
-	}
+		// Warn about unknown keys
+		for _, key := range md.Undecoded() {
+			fmt.Fprintf(os.Stderr, "same-telegram: WARNING: unknown key %q in %s\n", key.String(), path)
+		}
 
-	// Warn about unknown keys
-	for _, key := range md.Undecoded() {
-		fmt.Fprintf(os.Stderr, "same-telegram: WARNING: unknown key %q in %s\n", key.String(), path)
+		// Environment variable overrides (deploy-time overrides for TOML defaults).
+		applyEnvOverrides(&cfg.Bot)
 	}
 
 	if cfg.Bot.Token == "" {
-		return nil, fmt.Errorf("bot.token is required in %s", path)
+		return nil, fmt.Errorf("bot.token is required (set in %s or TELEGRAM_BOT_TOKEN env var)", path)
 	}
-	if len(cfg.Bot.AllowedUserIDs) == 0 && !cfg.Bot.IsPublicMode() {
+	if len(cfg.Bot.AllowedUserIDs) == 0 && !cfg.Bot.IsPublicMode() && !cfg.Bot.IsWorkspaceMode() {
 		return nil, fmt.Errorf("bot.allowed_user_ids is required in %s (security: whitelist your Telegram user ID)", path)
 	}
 
+	// Workspace mode requires Fly API credentials.
+	if cfg.Bot.IsWorkspaceMode() {
+		if cfg.Bot.FlyAPIToken == "" {
+			return nil, fmt.Errorf("bot.fly_api_token is required in workspace mode (set in %s or FLY_API_TOKEN env var)", path)
+		}
+		if cfg.Bot.FlyAppName == "" {
+			return nil, fmt.Errorf("bot.fly_app_name is required in workspace mode (set in %s or FLY_APP_NAME env var)", path)
+		}
+	}
+
 	return cfg, nil
+}
+
+// applyEnvOverrides applies environment variable overrides to BotConfig.
+// Env vars take precedence over TOML values when set.
+func applyEnvOverrides(bot *BotConfig) {
+	if v := os.Getenv("TELEGRAM_BOT_TOKEN"); v != "" {
+		bot.Token = v
+	}
+	if v := os.Getenv("BOT_MODE"); v != "" {
+		bot.Mode = v
+	}
+	if v := os.Getenv("WORKSPACE_HOST"); v != "" {
+		bot.WorkspaceHost = v
+	}
+	if v := os.Getenv("INVITE_CODE"); v != "" {
+		bot.InviteCode = v
+	}
+	if v := os.Getenv("WORKSPACE_FLY_TOKEN"); v != "" {
+		bot.FlyAPIToken = v
+	} else if v := os.Getenv("FLY_API_TOKEN"); v != "" {
+		bot.FlyAPIToken = v
+	}
+	if v := os.Getenv("WORKSPACE_APP_NAME"); v != "" {
+		bot.FlyAppName = v
+	} else if v := os.Getenv("FLY_APP_NAME"); v != "" {
+		bot.FlyAppName = v
+	}
+	if v := os.Getenv("FLY_REGION"); v != "" {
+		bot.FlyRegion = v
+	}
+	if v := os.Getenv("FLY_IMAGE"); v != "" {
+		bot.FlyImage = v
+	}
+	if v := os.Getenv("MACHINE_DB_PATH"); v != "" {
+		bot.MachineDBPath = v
+	}
+
+	// Apply defaults for fields that are still empty.
+	if bot.FlyRegion == "" {
+		bot.FlyRegion = "iad"
+	}
+	if bot.MachineDBPath == "" {
+		bot.MachineDBPath = "~/.same/machines.db"
+	}
 }
 
 // EncryptionKeyPath returns the path to the auto-generated encryption key file.

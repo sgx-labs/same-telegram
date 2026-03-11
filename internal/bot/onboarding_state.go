@@ -10,18 +10,45 @@ const onboardingTTL = 30 * time.Minute
 
 // onboardingState tracks per-user onboarding progress.
 type onboardingState struct {
-	mu            sync.Mutex
-	awaitingKey   map[int64]string    // user ID -> backend they selected
-	awaitingModel map[int64]bool      // user ID -> waiting for model name
-	timestamps    map[int64]time.Time // user ID -> last activity time
+	mu             sync.Mutex
+	awaitingKey    map[int64]string                       // user ID -> backend they selected
+	awaitingModel  map[int64]bool                         // user ID -> waiting for model name
+	workspaces     map[int64]*workspaceOnboardingState     // user ID -> workspace onboarding
+	timestamps     map[int64]time.Time                    // user ID -> last activity time
+	invitedUsers   map[int64]bool                         // user IDs that have used an invite code
+	pendingDestroy map[int64]time.Time                    // user ID -> when /destroy was requested (expires after 60s)
 }
 
 func newOnboardingState() *onboardingState {
 	return &onboardingState{
-		awaitingKey:   make(map[int64]string),
-		awaitingModel: make(map[int64]bool),
-		timestamps:    make(map[int64]time.Time),
+		awaitingKey:    make(map[int64]string),
+		awaitingModel:  make(map[int64]bool),
+		workspaces:     make(map[int64]*workspaceOnboardingState),
+		timestamps:     make(map[int64]time.Time),
+		invitedUsers:   make(map[int64]bool),
+		pendingDestroy: make(map[int64]time.Time),
 	}
+}
+
+// markInvited records that a user used an invite code.
+func (o *onboardingState) markInvited(userID int64) {
+	o.mu.Lock()
+	o.invitedUsers[userID] = true
+	o.mu.Unlock()
+}
+
+// isInvited returns true if the user has already used an invite code.
+func (o *onboardingState) isInvited(userID int64) bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.invitedUsers[userID]
+}
+
+// inviteCount returns the number of users who have used invite codes.
+func (o *onboardingState) inviteCount() int {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return len(o.invitedUsers)
 }
 
 func (o *onboardingState) setAwaitingKey(userID int64, backend string) {

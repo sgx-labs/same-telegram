@@ -1,0 +1,72 @@
+/*
+ * SameVault Terminal — Design Tokens
+ *
+ * All colors map to Telegram themeParams via CSS variables.
+ * The SDK creates --tg-theme-* vars automatically via bindThemeParamsCSSVars().
+ * We define semantic aliases here, with Tokyo Night fallbacks for standalone use.
+ */
+
+:root {
+  /* === Semantic Color Tokens === */
+
+  /* Terminal surface */
+  --sv-terminal-bg: var(--tg-theme-secondary-bg-color, #1a1b26);
+  --sv-terminal-fg: var(--tg-theme-text-color, #a9b1d6);
+  --sv-terminal-cursor: var(--tg-theme-accent-text-color, #c0caf5);
+  --sv-terminal-selection: var(--tg-theme-hint-color, #33467c);
+
+  /* Chrome (status bar, key bar, overlays) */
+  --sv-chrome-bg: var(--tg-theme-bg-color, #16161e);
+  --sv-chrome-fg: var(--tg-theme-text-color, #a9b1d6);
+  --sv-chrome-border: var(--tg-theme-section-separator-color, #222436);
+  --sv-chrome-subtle: var(--tg-theme-subtitle-text-color, #565f89);
+
+  /* Interactive elements */
+  --sv-accent: var(--tg-theme-button-color, #7aa2f7);
+  --sv-accent-text: var(--tg-theme-button-text-color, #1a1b26);
+  --sv-link: var(--tg-theme-link-color, #7aa2f7);
+  --sv-hint: var(--tg-theme-hint-color, #565f89);
+  --sv-destructive: var(--tg-theme-destructive-text-color, #f7768e);
+
+  /* Status indicators */
+  --sv-success: #9ece6a;
+  --sv-warning: #e0af68;
+  --sv-error: #f7768e;
+
+  /* === Spacing Scale (4px base) === */
+  --sv-space-1: 4px;
+  --sv-space-2: 8px;
+  --sv-space-3: 12px;
+  --sv-space-4: 16px;
+  --sv-space-5: 20px;
+  --sv-space-6: 24px;
+  --sv-space-8: 32px;
+
+  /* === Typography === */
+  --sv-font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'SF Mono', 'Consolas', monospace;
+  --sv-font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --sv-font-size-xs: 11px;
+  --sv-font-size-sm: 13px;
+  --sv-font-size-base: 14px;
+  --sv-font-size-lg: 16px;
+
+  /* === Touch Targets === */
+  --sv-touch-min: 44px;
+  --sv-touch-comfortable: 48px;
+
+  /* === Borders === */
+  --sv-radius-sm: 4px;
+  --sv-radius-md: 8px;
+  --sv-radius-lg: 12px;
+
+  /* === Transitions === */
+  --sv-transition-fast: 100ms ease-out;
+  --sv-transition-normal: 200ms ease-out;
+  --sv-transition-slow: 300ms ease-out;
+
+  /* === Z-Layers === */
+  --sv-z-terminal: 1;
+  --sv-z-keybar: 10;
+  --sv-z-statusbar: 10;
+  --sv-z-overlay: 100;
+}

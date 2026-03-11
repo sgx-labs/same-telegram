@@ -1,5 +1,7 @@
 /same-telegram
+/workspace-server
 dist/
+node_modules/
 *.pid
 *.sock
 *.log

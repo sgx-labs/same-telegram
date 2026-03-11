@@ -1,0 +1,28 @@
+# ~/.bashrc — SameVault workspace shell config.
+# Sourced by every new bash shell (tmux panes, exec, etc.).
+
+# Source API keys if present (persisted by bot during onboarding).
+if [ -f /data/.env ]; then
+    . /data/.env
+fi
+
+# First connect: welcome + auto-launch Claude Code or its login flow.
+# Only runs once — subsequent shells get a normal prompt.
+if [ ! -f /data/.welcomed ]; then
+    touch /data/.welcomed
+    echo ""
+    echo "  Welcome to SameVault"
+    echo "  Your persistent AI workspace."
+    echo ""
+    if command -v claude >/dev/null 2>&1; then
+        if [ -n "$ANTHROPIC_API_KEY" ] || [ -f "$HOME/.claude/.credentials.json" ]; then
+            echo "  Starting Claude Code..."
+            echo ""
+            claude
+        else
+            echo "  Let's connect your Claude account."
+            echo ""
+            claude login
+        fi
+    fi
+fi

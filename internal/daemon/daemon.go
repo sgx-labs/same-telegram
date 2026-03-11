@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"path/filepath"
 
 	"github.com/sgx-labs/same-telegram/internal/bot"
 	"github.com/sgx-labs/same-telegram/internal/config"
@@ -22,7 +23,11 @@ type Daemon struct {
 
 // New creates a new Daemon instance.
 func New(cfg *config.Config) (*Daemon, error) {
-	logFile, err := os.OpenFile(config.LogPath(), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	logPath := config.LogPath()
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o700); err != nil {
+		return nil, err
+	}
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return nil, err
 	}

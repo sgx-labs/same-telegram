@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>SameVault</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%;
+    height: 100dvh;
+    background: #1a1b26;
+    overflow: hidden;
+    touch-action: manipulation;
+  }
+
+  #app {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Header bar — hidden inside Telegram (it has its own) */
+  #header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 12px;
+    background: #16161e;
+    border-bottom: 1px solid #2a2b3d;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    color: #a9b1d6;
+    font-size: 13px;
+    flex-shrink: 0;
+  }
+  #header .title { font-weight: 600; color: #7aa2f7; }
+  #status { display: flex; align-items: center; gap: 6px; }
+  .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: #f7768e;
+    transition: background 0.3s;
+  }
+  .dot.connected { background: #9ece6a; }
+
+  /* Hide our header when inside Telegram Mini App */
+  body.in-telegram #header { display: none; }
+
+  /* Terminal fills all available space */
+  #terminal { flex: 1; min-height: 0; }
+
+  /* Extra key bar */
+  #keys {
+    display: flex;
+    flex-shrink: 0;
+    background: #16161e;
+    border-top: 1px solid #2a2b3d;
+    padding: 4px 4px;
+    gap: 3px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  #keys button {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 12px;
+    padding: 6px 10px;
+    border: 1px solid #2a2b3d;
+    border-radius: 4px;
+    background: #1a1b26;
+    color: #a9b1d6;
+    white-space: nowrap;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    min-width: 36px;
+    text-align: center;
+  }
+
+  #keys button:active {
+    background: #33467c;
+    color: #c0caf5;
+  }
+
+  #keys button.toggle { position: relative; }
+  #keys button.toggle.active {
+    background: #7aa2f7;
+    color: #1a1b26;
+  }
+
+  @media (max-width: 480px) {
+    #header { padding: 4px 8px; font-size: 11px; }
+    #keys button { font-size: 11px; padding: 5px 8px; }
+  }
+
+  #keys::-webkit-scrollbar { display: none; }
+  #keys { -ms-overflow-style: none; scrollbar-width: none; }
+
+  /* Safe area for devices with notches / home indicators */
+  #keys { padding-bottom: max(4px, env(safe-area-inset-bottom)); }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <div id="header">
+    <span class="title">SameVault</span>
+    <div id="status">
+      <span id="status-text">connecting...</span>
+      <span class="dot" id="status-dot"></span>
+    </div>
+  </div>
+  <div id="terminal"></div>
+  <div id="keys">
+    <button data-key="Escape">Esc</button>
+    <button data-key="Tab">Tab</button>
+    <button class="toggle" id="ctrl-btn" data-modifier="ctrl">Ctrl</button>
+    <button class="toggle" id="alt-btn" data-modifier="alt">Alt</button>
+    <button data-key="ArrowUp">&uarr;</button>
+    <button data-key="ArrowDown">&darr;</button>
+    <button data-key="ArrowLeft">&larr;</button>
+    <button data-key="ArrowRight">&rarr;</button>
+    <button data-seq="|">|</button>
+    <button data-seq="~">~</button>
+    <button data-seq="/">/</button>
+    <button data-seq="-">-</button>
+    <button data-key="c" data-ctrl="true">^C</button>
+    <button data-key="d" data-ctrl="true">^D</button>
+    <button data-key="z" data-ctrl="true">^Z</button>
+    <button data-key="l" data-ctrl="true">^L</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.11.0/lib/addon-web-links.min.js"></script>
+<script>
+(function() {
+  'use strict';
+
+  // --- Telegram Mini App SDK ---
+  var tg = window.Telegram && window.Telegram.WebApp;
+  if (tg) {
+    document.body.classList.add('in-telegram');
+    tg.ready();
+    tg.expand();
+    if (tg.requestFullscreen) tg.requestFullscreen();
+    // Disable vertical swipe to dismiss — user needs full terminal control.
+    if (tg.disableVerticalSwipes) tg.disableVerticalSwipes();
+  }
+
+  // Apply Telegram theme if available.
+  function applyTelegramTheme() {
+    if (!tg || !tg.themeParams) return null;
+    var tp = tg.themeParams;
+    return {
+      background: tp.secondary_bg_color || tp.bg_color || '#1a1b26',
+      foreground: tp.text_color || '#a9b1d6',
+      cursor: tp.accent_text_color || tp.link_color || '#c0caf5',
+      selectionBackground: tp.hint_color || '#33467c',
+    };
+  }
+
+  // --- Terminal setup ---
+  var fitAddon = new FitAddon.FitAddon();
+  var webLinksAddon = new WebLinksAddon.WebLinksAddon();
+
+  var defaultTheme = {
+    background: '#1a1b26', foreground: '#a9b1d6', cursor: '#c0caf5',
+    selectionBackground: '#33467c',
+    black: '#15161e', red: '#f7768e', green: '#9ece6a', yellow: '#e0af68',
+    blue: '#7aa2f7', magenta: '#bb9af7', cyan: '#7dcfff', white: '#a9b1d6',
+    brightBlack: '#414868', brightRed: '#f7768e', brightGreen: '#9ece6a',
+    brightYellow: '#e0af68', brightBlue: '#7aa2f7', brightMagenta: '#bb9af7',
+    brightCyan: '#7dcfff', brightWhite: '#c0caf5',
+  };
+
+  var tgTheme = applyTelegramTheme();
+  var theme = tgTheme ? Object.assign({}, defaultTheme, tgTheme) : defaultTheme;
+
+  var isMobile = /Android|iPhone|iPad/i.test(navigator.userAgent);
+
+  var term = new Terminal({
+    cursorBlink: true,
+    fontSize: isMobile ? 13 : 14,
+    fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", Menlo, monospace',
+    theme: theme,
+    allowProposedApi: true,
+    scrollback: 5000,
+  });
+
+  term.loadAddon(fitAddon);
+  term.loadAddon(webLinksAddon);
+  term.open(document.getElementById('terminal'));
+
+  // On mobile, allow native keyboard but disable autocorrect/autocapitalize.
+  // The KeyBar provides supplementary special keys alongside the native keyboard.
+  var helperTextarea = document.querySelector('.xterm-helper-textarea');
+  if (helperTextarea && isMobile) {
+    helperTextarea.setAttribute('autocomplete', 'off');
+    helperTextarea.setAttribute('autocorrect', 'off');
+    helperTextarea.setAttribute('autocapitalize', 'off');
+    helperTextarea.setAttribute('spellcheck', 'false');
+  }
+
+  // --- Fit + send resize ---
+  // Fit the terminal and send the new size to the server.
+  function fitAndSync() {
+    fitAddon.fit();
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+    }
+  }
+
+  var fitTimer = null;
+  function debouncedFit() {
+    if (fitTimer) clearTimeout(fitTimer);
+    fitTimer = setTimeout(fitAndSync, 100);
+  }
+
+  // Telegram expand() is async. Fit multiple times to catch the final viewport.
+  setTimeout(fitAndSync, 0);
+  setTimeout(fitAndSync, 300);
+  setTimeout(fitAndSync, 800);
+  setTimeout(fitAndSync, 1500);
+
+  // --- Status ---
+  var statusDot = document.getElementById('status-dot');
+  var statusText = document.getElementById('status-text');
+
+  function setStatus(connected) {
+    if (connected) {
+      statusDot.classList.add('connected');
+      statusText.textContent = 'connected';
+    } else {
+      statusDot.classList.remove('connected');
+      statusText.textContent = 'disconnected';
+    }
+  }
+
+  // --- WebSocket ---
+  var ws = null;
+  var reconnectDelay = 1000;
+
+  function connect() {
+    var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    var params = new URLSearchParams(location.search);
+    var token = params.get('token') || '';
+
+    if (!token && tg && tg.initData) {
+      token = tg.initData;
+    }
+
+    var instance = params.get('instance') || '';
+    var wsUrl = proto + '//' + location.host + '/ws?token=' + encodeURIComponent(token) +
+      (instance ? '&instance=' + encodeURIComponent(instance) : '');
+
+    ws = new WebSocket(wsUrl);
+    ws.binaryType = 'arraybuffer';
+
+    ws.onopen = function() {
+      setStatus(true);
+      reconnectDelay = 1000;
+      // Re-fit now that we know the final viewport, then send size.
+      fitAndSync();
+      if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+    };
+
+    ws.onmessage = function(evt) {
+      if (evt.data instanceof ArrayBuffer) {
+        term.write(new Uint8Array(evt.data));
+      } else {
+        term.write(evt.data);
+      }
+    };
+
+    ws.onclose = function() {
+      setStatus(false);
+      term.write('\r\n\x1b[33m[reconnecting...]\x1b[0m\r\n');
+      setTimeout(connect, Math.min(reconnectDelay, 10000));
+      reconnectDelay *= 1.5;
+    };
+
+    ws.onerror = function() { ws.close(); };
+  }
+
+  // Terminal input -> WebSocket.
+  term.onData(function(data) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(new TextEncoder().encode(data));
+    }
+  });
+
+  // Terminal resize -> WebSocket.
+  term.onResize(function(size) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'resize', cols: size.cols, rows: size.rows }));
+    }
+  });
+
+  connect();
+
+  // --- Resize handling ---
+  window.addEventListener('resize', debouncedFit);
+  if (tg) {
+    tg.onEvent('viewportChanged', function() {
+      // Telegram viewport changed (expanded, keyboard shown, etc.)
+      debouncedFit();
+    });
+  }
+
+  // --- Extra key bar ---
+  var ctrlActive = false;
+  var altActive = false;
+  var ctrlBtn = document.getElementById('ctrl-btn');
+  var altBtn = document.getElementById('alt-btn');
+
+  document.getElementById('keys').addEventListener('click', function(e) {
+    var btn = e.target.closest('button');
+    if (!btn) return;
+
+    e.preventDefault();
+
+    if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+
+    if (btn.dataset.modifier === 'ctrl') {
+      ctrlActive = !ctrlActive;
+      ctrlBtn.classList.toggle('active', ctrlActive);
+      term.focus();
+      return;
+    }
+    if (btn.dataset.modifier === 'alt') {
+      altActive = !altActive;
+      altBtn.classList.toggle('active', altActive);
+      term.focus();
+      return;
+    }
+
+    if (btn.dataset.ctrl === 'true' && btn.dataset.key) {
+      var code = btn.dataset.key.charCodeAt(0) - 96;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(new Uint8Array([code]));
+      }
+      term.focus();
+      return;
+    }
+
+    if (btn.dataset.seq) {
+      var seq = btn.dataset.seq;
+      if (ctrlActive) {
+        var c = seq.charCodeAt(0) - 64;
+        if (c > 0) seq = String.fromCharCode(c);
+        ctrlActive = false;
+        ctrlBtn.classList.remove('active');
+      }
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(new TextEncoder().encode(seq));
+      }
+      term.focus();
+      return;
+    }
+
+    var key = btn.dataset.key;
+    if (!key) return;
+
+    var escSeq = '';
+    switch (key) {
+      case 'Escape':    escSeq = '\x1b'; break;
+      case 'Tab':       escSeq = '\t'; break;
+      case 'ArrowUp':   escSeq = '\x1b[A'; break;
+      case 'ArrowDown': escSeq = '\x1b[B'; break;
+      case 'ArrowRight':escSeq = '\x1b[C'; break;
+      case 'ArrowLeft': escSeq = '\x1b[D'; break;
+      default: escSeq = key;
+    }
+
+    if (ctrlActive && escSeq.length === 1) {
+      var ctrl = escSeq.toUpperCase().charCodeAt(0) - 64;
+      if (ctrl > 0 && ctrl < 32) escSeq = String.fromCharCode(ctrl);
+      ctrlActive = false;
+      ctrlBtn.classList.remove('active');
+    }
+    if (altActive) {
+      escSeq = '\x1b' + escSeq;
+      altActive = false;
+      altBtn.classList.remove('active');
+    }
+
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(new TextEncoder().encode(escSeq));
+    }
+    term.focus();
+  });
+
+  // --- Telegram back button ---
+  if (tg && tg.BackButton) {
+    tg.BackButton.show();
+    tg.BackButton.onClick(function() {
+      tg.close();
+    });
+  }
+
+})();
+</script>
+</body>
+</html>

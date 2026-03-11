@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "memory": {
+      "command": "same",
+      "args": ["mcp"],
+      "env": {
+        "VAULT_PATH": "/data/vault"
+      }
+    }
+  }
+}

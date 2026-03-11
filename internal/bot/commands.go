@@ -25,13 +25,17 @@ func (b *Bot) handleCommand(msg *tgbotapi.Message) {
 		"claude": true, "config": true,
 	}
 
-	if b.isPublicMode() && internalOnly[cmd] {
+	if (b.isPublicMode() || b.isWorkspaceMode()) && internalOnly[cmd] {
 		b.sendMarkdown(msg.Chat.ID, "This command is not available.")
 		return
 	}
 
 	switch cmd {
 	case "start":
+		if b.isWorkspaceMode() {
+			b.handleWorkspaceStart(msg)
+			return
+		}
 		if b.isPublicMode() {
 			b.sendOnboardingPrompt(msg.Chat.ID)
 			return
@@ -82,12 +86,27 @@ func (b *Bot) handleCommand(msg *tgbotapi.Message) {
 		b.sessions.Clear(msg.From.ID)
 		b.conversations.Clear(msg.From.ID)
 		reply = "Session cleared. Next message starts a fresh conversation."
+	case "feedback":
+		b.handleFeedbackCommand(msg)
+		return
+	case "privacy":
+		b.handlePrivacyCommand(msg)
+		return
+	case "stats":
+		b.handleStatsCommand(msg)
+		return
 	case "cancel":
 		b.onboarding.clear(msg.From.ID)
 		reply = "Cancelled."
 	case "stop":
 		b.handleStop(msg)
 		return
+	case "destroy":
+		if b.isWorkspaceMode() {
+			b.handleDestroyCommand(msg)
+			return
+		}
+		reply = "This command is not available."
 	case "config":
 		reply = cmdConfig(b)
 	case "team":

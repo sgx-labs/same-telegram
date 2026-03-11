@@ -55,16 +55,39 @@ var internalOnlyCommands = []tgbotapi.BotCommand{
 // botCommands returns the full command list for internal mode (backward compat).
 var botCommands = append(append([]tgbotapi.BotCommand{}, alwaysCommands...), internalOnlyCommands...)
 
+// workspaceCommands are shown in workspace mode (minimal — just start and help).
+var workspaceCommands = []tgbotapi.BotCommand{
+	{Command: "start", Description: "Set up your workspace"},
+	{Command: "destroy", Description: "Permanently delete your workspace"},
+	{Command: "feedback", Description: "Send feedback to the team"},
+	{Command: "privacy", Description: "Toggle analytics opt-out"},
+	{Command: "help", Description: "Show commands"},
+}
+
 // commandsForMode returns the appropriate command list based on mode.
-func commandsForMode(public bool) []tgbotapi.BotCommand {
-	if public {
+func commandsForMode(mode string) []tgbotapi.BotCommand {
+	switch mode {
+	case "workspace":
+		return workspaceCommands
+	case "public":
 		return publicCommands
+	default:
+		return botCommands
 	}
-	return botCommands
 }
 
 // generateHelpText builds the /help response, filtering by bot mode.
 func (b *Bot) generateHelpText() string {
+	// Workspace mode: short, focused help.
+	if b.isWorkspaceMode() {
+		return "*SameVault Commands*\n\n" +
+			"/start -- Set up your workspace\n" +
+			"/destroy -- Permanently delete your workspace\n" +
+			"/feedback -- Send feedback to the team\n" +
+			"/privacy -- Toggle analytics opt-out\n" +
+			"/help -- Show this message"
+	}
+
 	var sb strings.Builder
 	sb.WriteString("*SAME Telegram Bot -- Commands*\n\n")
 
@@ -76,7 +99,7 @@ func (b *Bot) generateHelpText() string {
 	}
 
 	groups := []group{
-		{"AI", []string{"claude", "ai", "reset", "new", "clear", "onboard", "settings"}, false},
+		{"AI", []string{"ai", "reset", "new", "clear", "onboard", "settings"}, false},
 		{"Team", []string{"team", "decisions", "announce"}, true},
 		{"Reviews", []string{"reviews", "review", "approve", "reject"}, true},
 		{"Tasks", []string{"task", "tasks", "cancel_task"}, true},
@@ -91,7 +114,7 @@ func (b *Bot) generateHelpText() string {
 		desc[c.Command] = c.Description
 	}
 
-	// In public mode, also filter out "claude" (internal-only alias)
+	// In public mode, filter out internal-only commands.
 	internalCmds := map[string]bool{
 		"claude": true, "team": true, "decisions": true, "announce": true,
 		"reviews": true, "review": true, "approve": true, "reject": true,

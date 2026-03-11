@@ -1,0 +1,14 @@
+app = "samevault-workspaces"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile.workspace"
+
+# This app doesn't run machines directly — machines are created
+# on-demand via the Machines API from the bot. This config just
+# builds and pushes the image to the registry.
+
+[env]
+  VAULT_PATH = "/data/vault"
+  SAME_HOME = "/data"
+  TERM = "xterm-256color"

@@ -251,7 +251,7 @@ func (b *Bot) handleOnboardingInput(msg *tgbotapi.Message) bool {
 
 	// Check if awaiting API key
 	if backend, ok := b.onboarding.getAwaitingKey(userID); ok {
-		// CRITICAL: Delete the message containing the API key immediately
+		// Delete the message containing the API key immediately.
 		b.deleteMessage(chatID, msg.MessageID)
 		b.sendMarkdown(chatID, "API key stored securely. Message deleted for safety.")
 
@@ -261,6 +261,16 @@ func (b *Bot) handleOnboardingInput(msg *tgbotapi.Message) bool {
 		if len(text) < 10 {
 			b.sendMarkdown(chatID, "That does not look like a valid API key. Please try /settings and set up again.")
 			return true
+		}
+
+		// Check if this is workspace onboarding (auto-detect backend from key prefix).
+		b.onboarding.mu.Lock()
+		ws := b.onboarding.workspaces[userID]
+		isWorkspace := ws != nil && b.isWorkspaceMode()
+		b.onboarding.mu.Unlock()
+
+		if isWorkspace {
+			backend = detectKeyBackend(text)
 		}
 
 		// Encrypt and save
@@ -291,6 +301,13 @@ func (b *Bot) handleOnboardingInput(msg *tgbotapi.Message) bool {
 		// Update in-memory state
 		b.ai.setBackend(userID, backend)
 		b.ai.setConnectionMode(userID, store.ModeAPI)
+
+		// Workspace mode: inject key into the running container and show terminal.
+		if isWorkspace {
+			b.injectWorkspaceAPIKey(userID, text, backend)
+			b.handleWorkspaceComplete(chatID, userID)
+			return true
+		}
 
 		completionMsg := fmt.Sprintf(
 			"*You're all set!*\n\n"+

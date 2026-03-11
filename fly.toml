@@ -1,5 +1,5 @@
 app = "same-telegram"
-primary_region = "dfw"
+primary_region = "iad"
 kill_signal = "SIGTERM"
 kill_timeout = "5s"
 
@@ -8,6 +8,10 @@ kill_timeout = "5s"
 [env]
   VAULT_PATH = "/data/vault"
   SAME_HOME = "/data"
+  BOT_MODE = "workspace"
+  WORKSPACE_APP_NAME = "samevault-workspaces"
+  FLY_REGION = "iad"
+  FLY_IMAGE = "registry.fly.io/samevault-workspaces:latest"
 
 # No HTTP services — this is a long-poll Telegram bot, not a web server.
 

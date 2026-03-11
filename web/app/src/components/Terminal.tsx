@@ -63,7 +63,6 @@ export default function Terminal({ onConnectionChange, onHapticConnect, onHaptic
   useEffect(() => {
     if (!containerRef.current || termRef.current) return;
 
-    const isAndroid = /Android/i.test(navigator.userAgent);
     const isMobile = /Android|iPhone|iPad/i.test(navigator.userAgent);
 
     const term = new XTerm({

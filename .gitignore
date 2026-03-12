@@ -13,3 +13,5 @@ telegram.toml
 _PRIVATE/
 .claude/
 .mcp.json
+__pycache__/
+*.pyc

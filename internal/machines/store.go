@@ -106,6 +106,30 @@ func (s *SQLiteStore) DeleteUserMachine(userID string) error {
 	return err
 }
 
+// ListAllMachines returns all machine records in the store.
+func (s *SQLiteStore) ListAllMachines() ([]*UserMachine, error) {
+	rows, err := s.db.Query(
+		`SELECT user_id, machine_id, volume_id, region, state, token, created_at, last_used
+		 FROM user_machines`)
+	if err != nil {
+		return nil, fmt.Errorf("list machines: %w", err)
+	}
+	defer rows.Close()
+
+	var machines []*UserMachine
+	for rows.Next() {
+		var um UserMachine
+		var createdAt, lastUsed string
+		if err := rows.Scan(&um.UserID, &um.MachineID, &um.VolumeID, &um.Region, &um.State, &um.Token, &createdAt, &lastUsed); err != nil {
+			return nil, fmt.Errorf("scan machine: %w", err)
+		}
+		um.CreatedAt, _ = time.Parse(timeFormat, createdAt)
+		um.LastUsed, _ = time.Parse(timeFormat, lastUsed)
+		machines = append(machines, &um)
+	}
+	return machines, rows.Err()
+}
+
 // Close closes the database connection.
 func (s *SQLiteStore) Close() error {
 	return s.db.Close()

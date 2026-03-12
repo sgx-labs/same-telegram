@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
+
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
 	"github.com/sgx-labs/same-telegram/internal/ai"
+	"github.com/sgx-labs/same-telegram/internal/analytics"
 	"github.com/sgx-labs/same-telegram/internal/store"
 )
 
@@ -297,6 +300,12 @@ func (b *Bot) handleOnboardingInput(msg *tgbotapi.Message) bool {
 		if err := b.store.SaveAPIKey(userID, backend, encKey, defaultModel); err != nil {
 			b.logger.Printf("Warning: failed to save API key to vault: %v", err)
 		}
+
+		// Track API key configuration (non-blocking).
+		b.trackEvent(userID, analytics.EventAPIKeyConfigured, map[string]string{
+			"user_id":  strconv.FormatInt(userID, 10),
+			"provider": backend,
+		})
 
 		// Update in-memory state
 		b.ai.setBackend(userID, backend)
@@ -723,6 +732,8 @@ func backendDisplayName(backend string) string {
 		return "Gemini"
 	case "ollama":
 		return "Ollama"
+	case "openrouter":
+		return "OpenRouter"
 	default:
 		return backend
 	}

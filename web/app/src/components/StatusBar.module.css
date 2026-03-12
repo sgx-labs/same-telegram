@@ -4,11 +4,25 @@
   justify-content: space-between;
   padding: var(--sv-space-2) var(--sv-space-3);
   padding-top: max(var(--sv-space-2), env(safe-area-inset-top, 0px));
+  /* Landscape safe areas for iPhones with notch */
+  padding-left: max(var(--sv-space-3), env(safe-area-inset-left, 0px));
+  padding-right: max(var(--sv-space-3), env(safe-area-inset-right, 0px));
   background: var(--sv-chrome-bg);
   border-bottom: 1px solid var(--sv-chrome-border);
   z-index: var(--sv-z-statusbar);
   flex-shrink: 0;
   min-height: 36px;
+  transition: background var(--sv-transition-normal);
+}
+
+.statusbar.tappable {
+  cursor: pointer;
+  background: rgba(247, 118, 142, 0.08);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.statusbar.tappable:active {
+  background: rgba(247, 118, 142, 0.15);
 }
 
 .left {
@@ -50,15 +64,28 @@
   box-shadow: 0 0 6px var(--sv-success);
 }
 
+.dot.waiting {
+  background: var(--sv-warning);
+  animation: dotPulse 1.2s ease-in-out infinite;
+  box-shadow: 0 0 6px var(--sv-warning);
+}
+
+.dot.streaming {
+  background: var(--sv-accent);
+  animation: streamPulse 0.8s ease-in-out infinite;
+  box-shadow: 0 0 6px var(--sv-accent);
+}
+
 .dot.disconnected {
   background: var(--sv-error);
-  animation: pulse 2s ease-in-out infinite;
+  animation: dotPulse 1.2s ease-in-out infinite;
 }
 
 .label {
   font-family: var(--sv-font-mono);
   font-size: var(--sv-font-size-xs);
-  transition: color var(--sv-transition-normal);
+  transition: color var(--sv-transition-normal),
+              opacity var(--sv-transition-normal);
 }
 
 .label.connecting {
@@ -69,18 +96,65 @@
   color: var(--sv-success);
 }
 
-.label.disconnected {
-  color: var(--sv-error);
+.label.waiting {
+  color: var(--sv-warning);
+  animation: textPulse 1.2s ease-in-out infinite;
 }
 
+.label.streaming {
+  color: var(--sv-accent);
+}
+
+.label.disconnected {
+  color: var(--sv-error);
+  animation: textPulse 1.2s ease-in-out infinite;
+}
+
+/* Dot pulse: subtle scale + opacity for a breathing feel */
+@keyframes dotPulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+    box-shadow: 0 0 4px var(--sv-error);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.85);
+    box-shadow: 0 0 8px var(--sv-error);
+  }
+}
+
+/* Text pulse: gentle opacity fade to match the dot */
+@keyframes textPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* Connecting dot also pulses but at a different rate (amber) */
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
 }
 
+/* Streaming dot: faster pulse with scale for an active feel */
+@keyframes streamPulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+    box-shadow: 0 0 4px var(--sv-accent);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(1.15);
+    box-shadow: 0 0 10px var(--sv-accent);
+  }
+}
+
 @media (max-width: 480px) {
   .statusbar {
     padding: var(--sv-space-1) var(--sv-space-2);
+    /* Preserve safe area inset on narrow screens */
+    padding-top: max(var(--sv-space-1), env(safe-area-inset-top, 0px));
   }
 
   .brand {

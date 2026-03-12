@@ -1,0 +1,63 @@
+.inputBar {
+  display: flex;
+  align-items: center;
+  gap: var(--sv-space-2);
+  background: var(--sv-terminal-bg);
+  border-top: 1px solid var(--sv-chrome-border);
+  padding: var(--sv-space-1) var(--sv-space-3);
+  /* Landscape safe areas for iPhones with notch */
+  padding-left: max(var(--sv-space-3), env(safe-area-inset-left, 0px));
+  padding-right: max(var(--sv-space-3), env(safe-area-inset-right, 0px));
+  flex-shrink: 0;
+}
+
+.prompt {
+  font-family: var(--sv-font-mono);
+  font-size: var(--sv-font-size-sm);
+  color: var(--sv-accent);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.input {
+  flex: 1;
+  font-family: var(--sv-font-mono);
+  font-size: 16px; /* Exact 16px prevents iOS auto-zoom on focus */
+  color: var(--sv-terminal-fg);
+  background: transparent;
+  border: none;
+  outline: none;
+  caret-color: var(--sv-terminal-cursor);
+  padding: 2px 0;
+  min-height: var(--sv-touch-min);
+}
+
+.input::placeholder {
+  color: var(--sv-chrome-subtle);
+  opacity: 0.75;
+}
+
+.dismissBtn {
+  font-family: var(--sv-font-mono);
+  font-size: var(--sv-font-size-sm);
+  color: var(--sv-accent);
+  background: transparent;
+  border: 1px solid var(--sv-chrome-border);
+  border-radius: 4px;
+  padding: var(--sv-space-2) var(--sv-space-3);
+  min-height: var(--sv-touch-min);
+  min-width: var(--sv-touch-min);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity var(--sv-transition-fast),
+              background var(--sv-transition-fast);
+}
+
+.dismissBtn:active {
+  background: var(--sv-chrome-border);
+}

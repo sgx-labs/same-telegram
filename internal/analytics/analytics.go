@@ -2,6 +2,7 @@ package analytics
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,14 +13,20 @@ import (
 
 // Event types logged by the system.
 const (
-	EventWorkspaceCreated = "workspace_created"
-	EventSeedSelected     = "seed_selected"
-	EventTopicProvided    = "topic_provided"
-	EventAuthSelected     = "auth_selected"
-	EventSessionOpen      = "session_open"
-	EventFeedback         = "feedback"
-	EventCommandUsed      = "command_used"
-	EventInviteUsed       = "invite_used"
+	EventWorkspaceCreated  = "workspace_created"
+	EventWorkspaceConnected = "workspace_connected"
+	EventSessionDuration   = "workspace_session_duration"
+	EventSeedSelected      = "seed_selected"
+	EventTopicProvided     = "topic_provided"
+	EventAuthSelected      = "auth_selected"
+	EventSessionOpen       = "session_open"
+	EventFeedback          = "feedback"
+	EventCommandUsed       = "command_used"
+	EventInviteUsed        = "invite_used"
+	EventAPIKeyConfigured  = "api_key_configured"
+	EventBotCreated        = "bot_created"
+	EventSessionExported   = "session_exported"
+	EventWorkspaceImported = "workspace_imported"
 )
 
 // Store is a privacy-focused analytics store backed by SQLite.
@@ -58,6 +65,7 @@ func (s *Store) migrate() error {
 			user_id    INTEGER NOT NULL,
 			event_type TEXT NOT NULL,
 			value      TEXT NOT NULL DEFAULT '',
+			properties TEXT NOT NULL DEFAULT '{}',
 			created_at TEXT NOT NULL
 		);
 		CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type);
@@ -67,7 +75,14 @@ func (s *Store) migrate() error {
 			user_id INTEGER PRIMARY KEY
 		);
 	`)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Add properties column if it doesn't exist (migration for existing DBs).
+	_, _ = s.db.Exec(`ALTER TABLE events ADD COLUMN properties TEXT NOT NULL DEFAULT '{}'`)
+
+	return nil
 }
 
 // Log records an event. If the user has opted out, it's a no-op.
@@ -79,6 +94,25 @@ func (s *Store) Log(userID int64, eventType, value string) {
 	_, _ = s.db.Exec(
 		`INSERT INTO events (user_id, event_type, value, created_at) VALUES (?, ?, ?, ?)`,
 		userID, eventType, value, now,
+	)
+}
+
+// Track records an event with structured properties. If the user has opted out,
+// it's a no-op. Properties are stored as a JSON object alongside the event.
+func (s *Store) Track(userID int64, eventType string, props map[string]string) {
+	if s.IsOptedOut(userID) {
+		return
+	}
+	propsJSON := "{}"
+	if len(props) > 0 {
+		if b, err := json.Marshal(props); err == nil {
+			propsJSON = string(b)
+		}
+	}
+	now := time.Now().UTC().Format("2006-01-02T15:04:05Z")
+	_, _ = s.db.Exec(
+		`INSERT INTO events (user_id, event_type, value, properties, created_at) VALUES (?, ?, ?, ?, ?)`,
+		userID, eventType, "", propsJSON, now,
 	)
 }
 
@@ -100,17 +134,21 @@ func (s *Store) IsOptedOut(userID int64) bool {
 	return count > 0
 }
 
-// Summary holds aggregate stats for the /stats command.
+// Summary holds aggregate stats for the /stats and /analytics commands.
 type Summary struct {
-	TotalUsers       int
-	TotalWorkspaces  int
-	TotalSessions    int
-	FeedbackCount    int
-	SeedBreakdown    map[string]int // seed type -> count
-	AuthBreakdown    map[string]int // auth type -> count
-	ActiveToday      int
-	ActiveThisWeek   int
-	RecentFeedback   []FeedbackEntry
+	TotalUsers         int
+	TotalWorkspaces    int
+	TotalSessions      int
+	FeedbackCount      int
+	SeedBreakdown      map[string]int // seed type -> count
+	AuthBreakdown      map[string]int // auth type -> count
+	ActiveToday        int
+	ActiveThisWeek     int
+	RecentFeedback     []FeedbackEntry
+	AvgSessionDuration float64        // average session duration in seconds
+	PopularCommands    map[string]int // command -> count
+	TotalConnections   int            // total workspace_connected events
+	TotalAPIKeys       int            // total api_key_configured events
 }
 
 // FeedbackEntry is a single feedback message for admin review.
@@ -123,8 +161,9 @@ type FeedbackEntry struct {
 // GetSummary returns aggregate analytics for admin review.
 func (s *Store) GetSummary() (*Summary, error) {
 	sum := &Summary{
-		SeedBreakdown: make(map[string]int),
-		AuthBreakdown: make(map[string]int),
+		SeedBreakdown:   make(map[string]int),
+		AuthBreakdown:   make(map[string]int),
+		PopularCommands: make(map[string]int),
 	}
 
 	// Total unique users.
@@ -187,6 +226,35 @@ func (s *Store) GetSummary() (*Summary, error) {
 			}
 		}
 	}
+
+	// Average session duration (from workspace_session_duration events).
+	// The duration_seconds is stored in the value field.
+	_ = s.db.QueryRow(
+		`SELECT COALESCE(AVG(CAST(value AS REAL)), 0) FROM events WHERE event_type = ? AND value != ''`,
+		EventSessionDuration,
+	).Scan(&sum.AvgSessionDuration)
+
+	// Popular commands (top 10).
+	rows4, err := s.db.Query(
+		`SELECT value, COUNT(*) as cnt FROM events WHERE event_type = ? AND value != '' GROUP BY value ORDER BY cnt DESC LIMIT 10`,
+		EventCommandUsed,
+	)
+	if err == nil {
+		defer rows4.Close()
+		for rows4.Next() {
+			var cmd string
+			var cnt int
+			if rows4.Scan(&cmd, &cnt) == nil {
+				sum.PopularCommands[cmd] = cnt
+			}
+		}
+	}
+
+	// Total workspace connections.
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM events WHERE event_type = ?`, EventWorkspaceConnected).Scan(&sum.TotalConnections)
+
+	// Total API keys configured.
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM events WHERE event_type = ?`, EventAPIKeyConfigured).Scan(&sum.TotalAPIKeys)
 
 	return sum, nil
 }

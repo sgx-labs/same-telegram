@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -221,6 +222,18 @@ func applyEnvOverrides(bot *BotConfig) {
 	}
 	if v := os.Getenv("INVITE_CODE"); v != "" {
 		bot.InviteCode = v
+	}
+	if v := os.Getenv("ALLOWED_USER_IDS"); v != "" {
+		var ids []int64
+		for _, s := range strings.Split(v, ",") {
+			s = strings.TrimSpace(s)
+			if id, err := strconv.ParseInt(s, 10, 64); err == nil {
+				ids = append(ids, id)
+			}
+		}
+		if len(ids) > 0 {
+			bot.AllowedUserIDs = ids
+		}
 	}
 	if v := os.Getenv("WORKSPACE_FLY_TOKEN"); v != "" {
 		bot.FlyAPIToken = v

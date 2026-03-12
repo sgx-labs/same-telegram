@@ -12,13 +12,15 @@ interface UseWebSocketOptions {
  * WebSocket connection to the workspace terminal server.
  *
  * Features:
- * - Exponential backoff reconnection (1s → 10s max)
+ * - Exponential backoff reconnection (1s → 2s → 4s → 8s → 15s max)
  * - Binary messages for terminal I/O
  * - JSON text messages for resize control
+ * - Force-reconnect support for manual retry
  * - Graceful cleanup on unmount
  */
 export function useWebSocket(options: UseWebSocketOptions) {
   const [state, setState] = useState<ConnectionState>('connecting');
+  const [disconnectedAt, setDisconnectedAt] = useState<number | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectDelay = useRef(1000);
@@ -39,6 +41,12 @@ export function useWebSocket(options: UseWebSocketOptions) {
   const connect = useCallback(() => {
     if (!mountedRef.current) return;
 
+    // Close any existing connection before opening a new one
+    if (wsRef.current) {
+      wsRef.current.onclose = null;
+      wsRef.current.close();
+    }
+
     const url = getWsUrl();
     const ws = new WebSocket(url);
     ws.binaryType = 'arraybuffer';
@@ -49,6 +57,7 @@ export function useWebSocket(options: UseWebSocketOptions) {
     ws.onopen = () => {
       if (!mountedRef.current) { ws.close(); return; }
       setState('connected');
+      setDisconnectedAt(null);
       reconnectDelay.current = 1000; // Reset backoff
       optionsRef.current.onConnect?.();
     };
@@ -61,7 +70,13 @@ export function useWebSocket(options: UseWebSocketOptions) {
 
     ws.onclose = () => {
       if (!mountedRef.current) return;
-      setState('disconnected');
+      setState((prev) => {
+        // Only set disconnectedAt on the first transition to disconnected
+        if (prev !== 'disconnected') {
+          setDisconnectedAt(Date.now());
+        }
+        return 'disconnected';
+      });
       optionsRef.current.onDisconnect?.();
       scheduleReconnect();
     };
@@ -81,8 +96,16 @@ export function useWebSocket(options: UseWebSocketOptions) {
       }
     }, reconnectDelay.current);
 
-    // Exponential backoff: 1s → 2s → 4s → 8s → 10s (cap)
-    reconnectDelay.current = Math.min(reconnectDelay.current * 2, 10000);
+    // Exponential backoff: 1s → 2s → 4s → 8s → 15s (cap)
+    reconnectDelay.current = Math.min(reconnectDelay.current * 2, 15000);
+  }, [connect]);
+
+  // Force an immediate reconnect attempt (cancels pending scheduled reconnect)
+  const forceReconnect = useCallback(() => {
+    if (!mountedRef.current) return;
+    if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+    reconnectDelay.current = 1000; // Reset backoff on manual retry
+    connect();
   }, [connect]);
 
   // Send binary data (terminal input)
@@ -120,5 +143,5 @@ export function useWebSocket(options: UseWebSocketOptions) {
     };
   }, [connect]);
 
-  return { state, send, sendResize };
+  return { state, disconnectedAt, send, sendResize, forceReconnect };
 }

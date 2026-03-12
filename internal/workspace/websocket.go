@@ -1,14 +1,28 @@
 package workspace
 
 import (
+	"crypto/subtle"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"syscall"
+	"time"
 
 	"github.com/creack/pty/v2"
 	"github.com/gorilla/websocket"
+
+	"github.com/sgx-labs/same-telegram/internal/analytics"
+)
+
+const (
+	// Ping interval for WebSocket keepalive.
+	// Fly proxy kills idle connections after ~60s; 30s keeps them alive.
+	pingInterval = 30 * time.Second
+	// Pong timeout — if no pong received in this time, connection is dead.
+	pongTimeout = 60 * time.Second
 )
 
 var upgrader = websocket.Upgrader{
@@ -26,7 +40,9 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// --- Auth ---
 	if s.AuthToken != "" {
 		token := r.URL.Query().Get("token")
-		if token != s.AuthToken {
+		// SECURITY: Use constant-time comparison to prevent timing-based
+		// token guessing attacks.
+		if subtle.ConstantTimeCompare([]byte(token), []byte(s.AuthToken)) != 1 {
 			http.Error(w, "unauthorized — check your workspace link", http.StatusUnauthorized)
 			return
 		}
@@ -40,6 +56,11 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
+	// SECURITY: Limit incoming WebSocket message size to prevent memory exhaustion.
+	// Terminal input messages are tiny (keystrokes); control messages (resize) are
+	// small JSON. 64KB is generous while preventing abuse.
+	conn.SetReadLimit(64 * 1024)
+
 	// --- Session ---
 	sess, err := s.getOrCreateSession()
 	if err != nil {
@@ -49,25 +70,52 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// --- PTY ---
-	// Attach to tmux via a pseudo-terminal. Each WebSocket connection gets its
-	// own PTY attachment to the shared tmux session. When the WebSocket closes,
-	// we detach (SIGHUP) — tmux and the processes inside it keep running.
+	// Spawn a login shell directly on a pseudo-terminal. Each WebSocket
+	// connection gets its own shell process. When the WebSocket closes,
+	// we kill the shell and close the PTY.
 	cmd := sess.AttachCommand()
+	cmd.Env = append(os.Environ(),
+		"TERM=xterm-256color",
+		"HOME=/home/workspace",
+		"USER=workspace",
+		"SHELL=/bin/bash",
+		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+	)
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
 		log.Printf("pty start failed: %v", err)
-		sendError(conn, "Could not connect to your terminal session. It may still be initializing.")
+		sendError(conn, "Could not start your terminal session. Please try again in a moment.")
 		return
 	}
 	defer func() {
-		ptmx.Close()
-		// Detach from tmux, don't kill it. The session persists.
 		if cmd.Process != nil {
-			cmd.Process.Signal(syscall.SIGHUP)
+			// Kill the entire process group. pty.Start sets Setsid=true,
+			// so the shell is a session leader and its PID == PGID.
+			// Negative PID sends the signal to every process in the group,
+			// ensuring child processes (e.g., claude, running builds) are
+			// cleaned up when the WebSocket disconnects.
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		}
+		ptmx.Close()
 	}()
 
-	log.Printf("client connected to session %q (pid %d)", sess.ID, cmd.Process.Pid)
+	log.Printf("client connected to session %q (shell pid %d)", sess.ID, cmd.Process.Pid)
+
+	// --- Analytics: track connection ---
+	connectedAt := time.Now()
+	if s.Analytics != nil {
+		go s.Analytics.Track(0, analytics.EventWorkspaceConnected, map[string]string{
+			"user_id": "0",
+		})
+	}
+
+	// --- Keepalive ---
+	// Set initial read deadline and pong handler to reset it on each pong.
+	conn.SetReadDeadline(time.Now().Add(pongTimeout))
+	conn.SetPongHandler(func(string) error {
+		conn.SetReadDeadline(time.Now().Add(pongTimeout))
+		return nil
+	})
 
 	// --- I/O relay ---
 
@@ -85,6 +133,25 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if err := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); err != nil {
+				return
+			}
+		}
+	}()
+
+	// Server-side ping ticker — sends WebSocket ping frames to keep
+	// the connection alive through Fly's proxy (~60s idle timeout).
+	pingDone := make(chan struct{})
+	go func() {
+		defer close(pingDone)
+		ticker := time.NewTicker(pingInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(10*time.Second)); err != nil {
+					return
+				}
+			case <-done:
 				return
 			}
 		}
@@ -129,7 +196,30 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	<-done
-	log.Printf("client disconnected from session %q (session still running)", sess.ID)
+	<-pingDone
+
+	// --- Analytics: track session duration ---
+	duration := time.Since(connectedAt)
+	durationSec := fmt.Sprintf("%.0f", duration.Seconds())
+	log.Printf("client disconnected from session %q (duration: %s)", sess.ID, duration.Round(time.Second))
+	if s.Analytics != nil {
+		go func() {
+			s.Analytics.Track(0, analytics.EventSessionDuration, map[string]string{
+				"user_id":          "0",
+				"duration_seconds": durationSec,
+			})
+			// Also log with value for simple aggregation.
+			s.Analytics.Log(0, analytics.EventSessionDuration, durationSec)
+		}()
+	}
+
+	// --- Disconnect callback ---
+	if s.OnDisconnect != nil {
+		go s.OnDisconnect(DisconnectInfo{
+			SessionID: sess.ID,
+			Duration:  duration,
+		})
+	}
 }
 
 // sendError sends a human-readable error to the client as a JSON text message.

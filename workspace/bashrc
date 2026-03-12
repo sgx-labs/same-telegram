@@ -1,28 +1,92 @@
 # ~/.bashrc — SameVault workspace shell config.
-# Sourced by every new bash shell (tmux panes, exec, etc.).
+# Sourced by every new bash shell (PTY sessions, exec, etc.).
 
 # Source API keys if present (persisted by bot during onboarding).
 if [ -f /data/.env ]; then
     . /data/.env
 fi
 
-# First connect: welcome + auto-launch Claude Code or its login flow.
-# Only runs once — subsequent shells get a normal prompt.
-if [ ! -f /data/.welcomed ]; then
-    touch /data/.welcomed
-    echo ""
-    echo "  Welcome to SameVault"
-    echo "  Your persistent AI workspace."
-    echo ""
-    if command -v claude >/dev/null 2>&1; then
-        if [ -n "$ANTHROPIC_API_KEY" ] || [ -f "$HOME/.claude/.credentials.json" ]; then
-            echo "  Starting Claude Code..."
-            echo ""
-            claude
-        else
-            echo "  Let's connect your Claude account."
-            echo ""
-            claude login
-        fi
+# --- Terminal ---
+export TERM=xterm-256color
+
+# --- History ---
+HISTSIZE=10000
+HISTFILESIZE=20000
+HISTCONTROL=ignoredups:erasedups
+shopt -s histappend
+
+# --- Prompt: cyan directory, then $ ---
+PS1='\[\e[36m\]\w\[\e[0m\] $ '
+
+# --- Aliases ---
+alias ll='ls -la --color'
+alias c='claude'
+alias welcome='/usr/local/bin/welcome.sh'
+
+# --- Welcome banner ---
+# Three modes: first-run (no API key), first-run (key set), returning user.
+# Only show the full banner once per PTY session (not on every subshell).
+if [ -z "$SAMEVAULT_WELCOMED" ]; then
+    export SAMEVAULT_WELCOMED=1
+
+    _sv_has_key=0
+    if [ -n "$ANTHROPIC_API_KEY" ] || [ -n "$OPENROUTER_API_KEY" ]; then
+        _sv_has_key=1
     fi
+
+    # Count sessions to detect returning users.
+    _sv_session_count=0
+    if [ -f /data/.session_count ]; then
+        _sv_session_count=$(cat /data/.session_count 2>/dev/null || echo 0)
+    fi
+    _sv_session_count=$(( _sv_session_count + 1 ))
+    echo "$_sv_session_count" > /data/.session_count 2>/dev/null
+
+    # Count memories if same is available.
+    _sv_mem_count=0
+    if command -v same >/dev/null 2>&1 && [ -d "${VAULT_PATH:-/data/vault}" ]; then
+        _sv_mem_count=$(same list --path "${VAULT_PATH:-/data/vault}" 2>/dev/null | wc -l 2>/dev/null || echo 0)
+    fi
+
+    if [ "$_sv_session_count" -gt 1 ] && [ "$_sv_has_key" -eq 1 ]; then
+        # --- Returning user with key ---
+        echo ""
+        if [ "$_sv_mem_count" -gt 0 ]; then
+            printf '  \e[34m\e[1mSameVault\e[0m \e[2m|\e[0m Welcome back! Your vault has \e[32m%s\e[0m memories.\n' "$_sv_mem_count"
+        else
+            printf '  \e[34m\e[1mSameVault\e[0m \e[2m|\e[0m Welcome back!\n'
+        fi
+        printf '  Type \e[36mclaude\e[0m to continue \e[2m|\e[0m \e[36msame status\e[0m for memory\n'
+        echo ""
+
+    elif [ "$_sv_has_key" -eq 1 ]; then
+        # --- First run with key already set ---
+        echo ""
+        printf '  \e[34m\e[1mSameVault\e[0m \e[2m|\e[0m Ready\n'
+        printf '  Type \e[36mclaude\e[0m to start \e[2m|\e[0m \e[36msame status\e[0m for memory\n'
+        echo ""
+
+    else
+        # --- First run, no API key ---
+        echo ""
+        printf '  \e[97m╭──────────────────────────────────╮\e[0m\n'
+        printf '  \e[97m│\e[0m     \e[34m\e[1mWelcome to SameVault\e[0m        \e[97m│\e[0m\n'
+        printf '  \e[97m│\e[0m     \e[2mYour AI Cloud Terminal\e[0m       \e[97m│\e[0m\n'
+        printf '  \e[97m╰──────────────────────────────────╯\e[0m\n'
+        echo ""
+        printf '  To get started, set an API key:\n'
+        echo ""
+        printf '  \e[35mOption 1:\e[0m Anthropic\n'
+        printf '    \e[36mexport ANTHROPIC_API_KEY=sk-ant-...\e[0m\n'
+        echo ""
+        printf '  \e[35mOption 2:\e[0m OpenRouter \e[2m(100+ models)\e[0m\n'
+        printf '    \e[36mexport OPENROUTER_API_KEY=sk-or-...\e[0m\n'
+        printf '    \e[2mGet a key at: openrouter.ai\e[0m\n'
+        echo ""
+        printf '  Then type \e[36mclaude\e[0m to start your AI assistant.\n'
+        printf '  Type \e[36msame --help\e[0m to explore memory commands.\n'
+        echo ""
+    fi
+
+    unset _sv_has_key _sv_session_count _sv_mem_count
 fi

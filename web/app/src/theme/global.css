@@ -13,6 +13,7 @@
 html, body, #root {
   height: 100%;
   height: 100dvh;
+  width: 100%;
   overflow: hidden;
   background: var(--sv-chrome-bg);
   color: var(--sv-chrome-fg);
@@ -22,12 +23,11 @@ html, body, #root {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Prevent iOS overscroll bounce */
+/* Prevent overscroll bounce without position:fixed (which breaks Telegram WebView).
+   Do NOT use touch-action:none here — it blocks tap-to-focus on the xterm textarea,
+   preventing the keyboard from appearing on mobile. */
 body {
   overscroll-behavior: none;
-  position: fixed;
-  width: 100%;
-  height: 100%;
 }
 
 /* Selection color */
@@ -36,13 +36,24 @@ body {
   color: var(--sv-terminal-fg);
 }
 
-/* Scrollbar styling (for key bar horizontal scroll) */
+/* Hide scrollbars */
 ::-webkit-scrollbar {
   height: 0;
   width: 0;
 }
 
-/* Safe area insets for iPhone notch/Dynamic Island */
+/* Safe area insets — Telegram provides its own via JS (--tg-safe-*),
+   falling back to native env() for standalone browser use. */
+:root {
+  --tg-viewport-height: 100dvh;
+  --tg-safe-top: 0px;
+  --tg-safe-bottom: 0px;
+  --tg-safe-left: 0px;
+  --tg-safe-right: 0px;
+  --tg-content-safe-top: 0px;
+  --tg-content-safe-bottom: 0px;
+}
+
 @supports (padding: env(safe-area-inset-bottom)) {
   :root {
     --sv-safe-top: env(safe-area-inset-top, 0px);
@@ -51,3 +62,13 @@ body {
     --sv-safe-right: env(safe-area-inset-right, 0px);
   }
 }
+
+/* Telegram expanded mode handles top spacing via its native header.
+   No extra top padding needed (we don't use requestFullscreen). */
+
+/* xterm.js mobile touch scrolling — let the browser handle vertical pan
+   so xterm's built-in touch handler receives proper events. */
+.xterm { touch-action: pan-y; overscroll-behavior: none; }
+.xterm .xterm-viewport { touch-action: pan-y; overscroll-behavior-y: none; }
+.xterm .xterm-screen { touch-action: pan-y; }
+.xterm .xterm-rows span { touch-action: pan-y; }

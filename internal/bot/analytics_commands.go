@@ -16,6 +16,17 @@ func (b *Bot) logEvent(userID int64, eventType, value string) {
 	}
 }
 
+// trackEvent is a nil-safe, non-blocking helper for recording analytics events
+// with structured properties. Errors are logged but never fatal.
+func (b *Bot) trackEvent(userID int64, eventType string, props map[string]string) {
+	if b.analytics == nil {
+		return
+	}
+	go func() {
+		b.analytics.Track(userID, eventType, props)
+	}()
+}
+
 // handleFeedbackCommand processes /feedback <message>.
 func (b *Bot) handleFeedbackCommand(msg *tgbotapi.Message) {
 	text := strings.TrimSpace(msg.CommandArguments())
@@ -112,4 +123,95 @@ func (b *Bot) handleStatsCommand(msg *tgbotapi.Message) {
 	}
 
 	b.sendMarkdown(msg.Chat.ID, sb.String())
+}
+
+// handleAnalyticsCommand processes /analytics — admin-only detailed usage dashboard.
+// Shows total users, sessions, avg session duration, popular commands, and more.
+func (b *Bot) handleAnalyticsCommand(msg *tgbotapi.Message) {
+	chatID := msg.Chat.ID
+
+	// Admin-only — same pattern as /update and /machines.
+	ownerID := b.cfg.Bot.EffectiveOwnerID()
+	if ownerID != 0 && msg.From.ID != ownerID {
+		b.sendMarkdown(chatID, "This command is only available to the admin.")
+		return
+	}
+
+	if b.analytics == nil {
+		b.sendMarkdown(chatID, "Analytics are not enabled.")
+		return
+	}
+
+	sum, err := b.analytics.GetSummary()
+	if err != nil {
+		b.sendMarkdown(chatID, fmt.Sprintf("Error loading analytics: %v", err))
+		return
+	}
+
+	var sb strings.Builder
+	sb.WriteString("*Usage Analytics*\n\n")
+
+	// Overview.
+	sb.WriteString("*Overview:*\n")
+	sb.WriteString(fmt.Sprintf("  Total users: *%d*\n", sum.TotalUsers))
+	sb.WriteString(fmt.Sprintf("  Workspaces created: *%d*\n", sum.TotalWorkspaces))
+	sb.WriteString(fmt.Sprintf("  Terminal connections: *%d*\n", sum.TotalConnections))
+	sb.WriteString(fmt.Sprintf("  API keys configured: *%d*\n", sum.TotalAPIKeys))
+	sb.WriteString(fmt.Sprintf("  Active today: *%d*\n", sum.ActiveToday))
+	sb.WriteString(fmt.Sprintf("  Active this week: *%d*\n", sum.ActiveThisWeek))
+
+	// Sessions.
+	sb.WriteString("\n*Sessions:*\n")
+	sb.WriteString(fmt.Sprintf("  Total sessions: *%d*\n", sum.TotalSessions))
+	if sum.AvgSessionDuration > 0 {
+		avgMin := sum.AvgSessionDuration / 60.0
+		if avgMin >= 1 {
+			sb.WriteString(fmt.Sprintf("  Avg session duration: *%.1f min*\n", avgMin))
+		} else {
+			sb.WriteString(fmt.Sprintf("  Avg session duration: *%.0f sec*\n", sum.AvgSessionDuration))
+		}
+	}
+
+	// Popular commands.
+	if len(sum.PopularCommands) > 0 {
+		sb.WriteString("\n*Popular commands:*\n")
+		for cmd, count := range sum.PopularCommands {
+			sb.WriteString(fmt.Sprintf("  /%s: %d\n", cmd, count))
+		}
+	}
+
+	// Seed breakdown.
+	if len(sum.SeedBreakdown) > 0 {
+		sb.WriteString("\n*Seed templates:*\n")
+		for seed, count := range sum.SeedBreakdown {
+			sb.WriteString(fmt.Sprintf("  %s: %d\n", seed, count))
+		}
+	}
+
+	// Auth breakdown.
+	if len(sum.AuthBreakdown) > 0 {
+		sb.WriteString("\n*Auth methods:*\n")
+		for auth, count := range sum.AuthBreakdown {
+			sb.WriteString(fmt.Sprintf("  %s: %d\n", auth, count))
+		}
+	}
+
+	// Invite tracking.
+	inviteCount := b.onboarding.inviteCount()
+	sb.WriteString(fmt.Sprintf("\n*Invites used:* %d / %d\n", inviteCount, maxInviteUses))
+
+	// Feedback.
+	sb.WriteString(fmt.Sprintf("*Feedback messages:* %d\n", sum.FeedbackCount))
+	if len(sum.RecentFeedback) > 0 {
+		sb.WriteString("\n*Recent feedback:*\n")
+		for _, f := range sum.RecentFeedback {
+			preview := f.Message
+			if len(preview) > 80 {
+				preview = preview[:80] + "..."
+			}
+			sb.WriteString(fmt.Sprintf("  [%d] %s\n", f.UserID, preview))
+		}
+	}
+
+	b.sendMarkdown(chatID, sb.String())
 }

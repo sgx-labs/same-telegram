@@ -6,6 +6,7 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
+	"github.com/sgx-labs/same-telegram/internal/analytics"
 	"github.com/sgx-labs/same-telegram/internal/exec"
 )
 
@@ -13,6 +14,9 @@ import (
 func (b *Bot) handleCommand(msg *tgbotapi.Message) {
 	cmd := msg.Command()
 	args := msg.CommandArguments()
+
+	// Track command usage (non-blocking). Log with value for simple aggregation.
+	go b.logEvent(msg.From.ID, analytics.EventCommandUsed, cmd)
 
 	var reply string
 	var err error
@@ -95,6 +99,9 @@ func (b *Bot) handleCommand(msg *tgbotapi.Message) {
 	case "stats":
 		b.handleStatsCommand(msg)
 		return
+	case "analytics":
+		b.handleAnalyticsCommand(msg)
+		return
 	case "cancel":
 		b.onboarding.clear(msg.From.ID)
 		reply = "Cancelled."
@@ -104,6 +111,36 @@ func (b *Bot) handleCommand(msg *tgbotapi.Message) {
 	case "destroy":
 		if b.isWorkspaceMode() {
 			b.handleDestroyCommand(msg)
+			return
+		}
+		reply = "This command is not available."
+	case "newbot":
+		if b.isWorkspaceMode() {
+			b.handleNewbotCommand(msg)
+			return
+		}
+		reply = "This command is not available."
+	case "update":
+		if b.isWorkspaceMode() {
+			b.handleUpdateCommand(msg)
+			return
+		}
+		reply = "This command is not available."
+	case "export":
+		if b.isWorkspaceMode() {
+			b.handleExportCommand(msg)
+			return
+		}
+		reply = "This command is not available."
+	case "import":
+		if b.isWorkspaceMode() {
+			b.handleImportCommand(msg)
+			return
+		}
+		reply = "This command is not available."
+	case "machines":
+		if b.isWorkspaceMode() {
+			b.handleListMachinesCommand(msg)
 			return
 		}
 		reply = "This command is not available."

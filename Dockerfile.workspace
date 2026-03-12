@@ -2,16 +2,22 @@
 #
 # Each user gets their own isolated instance of this container.
 # It runs:
-#   - workspace-server: WebSocket ↔ terminal relay (Go)
-#   - tmux: session persistence (close Telegram, come back, everything's there)
+#   - workspace-server: WebSocket ↔ PTY terminal relay (Go)
 #   - same: persistent memory engine (SAME vault + MCP server)
 #   - claude: AI coding agent (Claude Code CLI)
 #
 # The user's vault data lives on a persistent Fly volume at /data.
 # If this container is destroyed and recreated, the vault survives.
 
-# --- Build workspace-server ---
+# --- Build workspace-server + SAME binary ---
 FROM golang:1.25-bookworm AS builder
+
+# Build SAME (persistent memory engine) from source.
+# Needs libsqlite3-dev for sqlite-vec CGO bindings.
+RUN apt-get update && apt-get install -y --no-install-recommends libsqlite3-dev && \
+    rm -rf /var/lib/apt/lists/* && \
+    CGO_ENABLED=1 go install github.com/sgx-labs/statelessagent/cmd/same@latest && \
+    cp $(go env GOPATH)/bin/same /usr/local/bin/same
 
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -34,32 +40,44 @@ RUN npm run build
 # --- Runtime ---
 FROM debian:bookworm-slim
 
-# System dependencies. Each one is here for a reason:
+# System dependencies.
 #   ca-certificates: HTTPS to Anthropic/OpenRouter APIs
-#   tmux: session persistence across disconnects
-#   curl: health checks, API calls from terminal
-#   git: version control from Claude Code
+#   tmux: available for user convenience (no longer used by workspace-server)
+#   curl/wget: HTTP tools
+#   git: version control
+#   openssh-client: git clone via SSH
+#   nano: lightweight editor
+#   less: paging (required by git, man, etc.)
+#   jq: JSON processing (APIs, config)
+#   sudo: let users install additional packages
+#   procps: ps, top, etc.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     tmux \
     curl \
+    wget \
     git \
+    openssh-client \
+    nano \
+    less \
+    jq \
+    sudo \
+    procps \
     && rm -rf /var/lib/apt/lists/*
 
-# Node.js — required by Claude Code CLI.
+# Node.js 22 — required by Claude Code CLI.
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Claude Code CLI.
-RUN npm install -g @anthropic-ai/claude-code 2>/dev/null || \
-    echo "Claude Code CLI not yet available on npm — will be installed manually"
+# Claude Code CLI — the primary AI tool in this workspace.
+RUN npm install -g @anthropic-ai/claude-code
 
 # Workspace server binary.
 COPY --from=builder /usr/local/bin/workspace-server /usr/local/bin/workspace-server
 
-# The SAME binary is provided at deploy time (built from statelessagent repo).
-# COPY same /usr/local/bin/same
+# SAME binary — persistent memory engine + MCP server.
+COPY --from=builder /usr/local/bin/same /usr/local/bin/same
 
 # Terminal frontends.
 # Legacy HTML fallback (single file).
@@ -74,21 +92,34 @@ COPY workspace/seeds/ /workspace/seeds/
 COPY workspace/startup.sh /usr/local/bin/startup.sh
 RUN chmod +x /usr/local/bin/startup.sh
 
+# Welcome command — shows vault status, commands cheat sheet, provider info.
+COPY workspace/welcome.sh /usr/local/bin/welcome.sh
+RUN chmod +x /usr/local/bin/welcome.sh
+
 # Non-root user with a real shell. tmux and Claude Code need this.
 RUN groupadd -r workspace && \
-    useradd -r -g workspace -m -d /home/workspace -s /bin/bash workspace
+    useradd -r -g workspace -m -d /home/workspace -s /bin/bash workspace && \
+    echo "workspace ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/workspace
 
 # Persistent volume mount point. Fly.io attaches the volume here.
 RUN mkdir -p /data && chown -R workspace:workspace /data
 
-# Claude Code config directory.
-RUN mkdir -p /home/workspace/.claude && \
-    chown -R workspace:workspace /home/workspace/.claude
+# Claude Code config directory and user projects directory.
+# These are created in the image so startup.sh can migrate their contents
+# to the persistent volume on first boot.
+RUN mkdir -p /home/workspace/.claude /home/workspace/projects && \
+    chown -R workspace:workspace /home/workspace/.claude /home/workspace/projects
 
 # Shell config — sources API keys and shows welcome on first connect.
 # Must come AFTER useradd (which creates the home dir with -m).
+# bash_profile ensures login shells (bash -l) source bashrc.
 COPY workspace/bashrc /home/workspace/.bashrc
-RUN chown workspace:workspace /home/workspace/.bashrc
+COPY workspace/bash_profile /home/workspace/.bash_profile
+RUN chown workspace:workspace /home/workspace/.bashrc /home/workspace/.bash_profile
+
+# tmux config — hides status bar, enables truecolor. Every pixel matters on mobile.
+COPY workspace/tmux.conf /home/workspace/.tmux.conf
+RUN chown workspace:workspace /home/workspace/.tmux.conf
 
 # Environment. These are defaults — overridable at runtime.
 ENV SAME_HOME=/data \

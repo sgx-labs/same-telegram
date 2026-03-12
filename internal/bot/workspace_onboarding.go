@@ -28,10 +28,11 @@ import (
 
 // workspaceOnboardingState tracks per-user workspace onboarding progress.
 type workspaceOnboardingState struct {
-	step      string // "seed", "topic", "auth", "key", "invite", "ready"
+	step      string // "seed", "topic", "auth", "provider", "key", "invite", "ready"
 	seed      string // selected seed vault
 	topic     string // user-provided topic/project description (for research/project seeds)
 	authType  string // "byok", "paygo"
+	provider  string // "anthropic", "openrouter" — selected AI provider (BYOK sub-step)
 	machineID string // Fly Machine ID (set once provisioning completes)
 	flyMachID string // Fly Machine ID (for fly-replay routing)
 	token     string // workspace auth token
@@ -44,9 +45,11 @@ func (b *Bot) handleWorkspaceStart(msg *tgbotapi.Message) {
 	userID := msg.From.ID
 	userIDStr := strconv.FormatInt(userID, 10)
 
-	// Check for invite code — either in /start payload (deep link) or already validated.
+	// Access control: if allowlist is configured, isBlockedUser already rejected
+	// unauthorized users in handleUpdate. If invite codes are also configured
+	// (no allowlist), fall back to the invite code flow.
 	payload := msg.CommandArguments()
-	if b.requiresInviteCode() && !b.hasValidInvite(userID) {
+	if !b.hasAllowlist() && b.requiresInviteCode() && !b.hasValidInvite(userID) {
 		if strings.HasPrefix(payload, "invite_") {
 			code := strings.TrimPrefix(payload, "invite_")
 			if b.validateInviteCode(code) {
@@ -179,6 +182,8 @@ func (b *Bot) handleWorkspaceCallback(cb *tgbotapi.CallbackQuery) {
 		b.handleWorkspaceSeedSelection(chatID, userID, value)
 	case "auth":
 		b.handleWorkspaceAuthSelection(chatID, userID, value)
+	case "provider":
+		b.handleWorkspaceProviderSelection(chatID, userID, value)
 	}
 }
 
@@ -285,17 +290,16 @@ func (b *Bot) handleWorkspaceTopicInput(msg *tgbotapi.Message) bool {
 func (b *Bot) sendWorkspaceAuthPrompt(chatID int64, seed string) {
 	seedName := seedDisplayName(seed)
 	text := fmt.Sprintf("*%s* — got it.\n\n"+
-		"Connect Claude Code to your workspace:\n\n"+
-		"*I have a key* — paste your API key here (auto-detected)\n"+
-		"*I'll sign in later* — run `claude login` in the terminal",
+		"You'll sign into Claude Code in the terminal.\n"+
+		"Just run `claude login` when it opens.",
 		seedName)
 
 	kb := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("I have a key", "ws:auth:byok"),
+			tgbotapi.NewInlineKeyboardButtonData("Open my workspace", "ws:auth:skip"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("I'll sign in later", "ws:auth:skip"),
+			tgbotapi.NewInlineKeyboardButtonData("I have an API key instead", "ws:auth:byok"),
 		),
 	)
 
@@ -323,7 +327,71 @@ func (b *Bot) handleWorkspaceAuthSelection(chatID, userID int64, authType string
 
 	switch authType {
 	case "byok":
-		// API key flow. Backend is auto-detected from the key prefix.
+		// Show provider selection: Anthropic or OpenRouter.
+		b.sendProviderSelection(chatID, userID)
+
+	case "skip":
+		// Skip AI setup for now — go straight to workspace.
+		b.handleWorkspaceComplete(chatID, userID)
+	}
+}
+
+// sendProviderSelection shows the AI provider choice (Anthropic vs OpenRouter).
+func (b *Bot) sendProviderSelection(chatID, userID int64) {
+	b.onboarding.mu.Lock()
+	if ws, ok := b.onboarding.workspaces[userID]; ok {
+		ws.step = "provider"
+	}
+	b.onboarding.mu.Unlock()
+
+	text := "*Choose your AI provider*\n\n" +
+		"*Anthropic (Claude)* — direct API access to Claude models\n" +
+		"Get a key at console.anthropic.com\n\n" +
+		"*OpenRouter (100+ models)* — one key for Claude, GPT-4, Gemini, Llama, and more\n" +
+		"Get a key at openrouter.ai"
+
+	kb := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("Anthropic (Claude)", "ws:provider:anthropic"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("OpenRouter (100+ models)", "ws:provider:openrouter"),
+		),
+	)
+
+	m := tgbotapi.NewMessage(chatID, text)
+	m.ParseMode = "Markdown"
+	m.ReplyMarkup = kb
+	b.api.Send(m)
+}
+
+// handleWorkspaceProviderSelection processes the AI provider choice callback.
+func (b *Bot) handleWorkspaceProviderSelection(chatID, userID int64, provider string) {
+	b.onboarding.mu.Lock()
+	ws := b.onboarding.workspaces[userID]
+	if ws != nil {
+		ws.provider = provider
+		ws.step = "key"
+	}
+	b.onboarding.mu.Unlock()
+
+	switch provider {
+	case "openrouter":
+		b.onboarding.setAwaitingKey(userID, "openrouter")
+		b.sendMarkdown(chatID,
+			"*OpenRouter selected*\n\n"+
+				"One API key for Claude, GPT-4, Gemini, Llama, and 100+ more models.\n\n"+
+				"*How to get a key:*\n"+
+				"1. Sign up at https://openrouter.ai/?ref=samevault\n"+
+				"2. Go to *Keys* in the dashboard\n"+
+				"3. Click *Create Key*\n"+
+				"4. Copy the key and paste it here\n\n"+
+				"Expected format: `sk-or-...`\n\n"+
+				"Your key will be encrypted and injected into your workspace.\n"+
+				"Your message will be deleted for safety.\n\n"+
+				"Send /cancel to go back.")
+
+	default: // "anthropic"
 		b.onboarding.setAwaitingKey(userID, "claude")
 		b.sendMarkdown(chatID,
 			"*Paste your API key*\n\n"+
@@ -333,10 +401,6 @@ func (b *Bot) handleWorkspaceAuthSelection(chatID, userID int64, authType string
 				"Claude Code (or other tools) work immediately.\n\n"+
 				"Your message will be deleted for safety.\n\n"+
 				"Send /cancel to go back.")
-
-	case "skip":
-		// Skip AI setup for now — go straight to workspace.
-		b.handleWorkspaceComplete(chatID, userID)
 	}
 }
 
@@ -357,12 +421,19 @@ func (b *Bot) handleWorkspaceComplete(chatID, userID int64) {
 	if ws.token != "" {
 		b.sendWorkspaceReady(chatID, ws.token, ws.flyMachID)
 		b.triggerVaultSeed(chatID, userID, userIDStr, ws.seed, ws.topic)
+		// Track bot/workspace creation complete (non-blocking).
+		b.trackEvent(userID, analytics.EventBotCreated, map[string]string{
+			"user_id":  strconv.FormatInt(userID, 10),
+			"template": ws.seed,
+		})
 		// If user skipped auth, tell them how to set up AI in the terminal.
 		if ws.authType == "skip" {
 			b.sendMarkdown(chatID,
-				"*To use Claude Code in your workspace:*\n\n"+
+				"*To use AI in your workspace:*\n\n"+
 					"`claude login` — sign in with your Claude account\n"+
-					"`export ANTHROPIC_API_KEY=sk-ant-...` — or paste an API key\n\n"+
+					"`export ANTHROPIC_API_KEY=sk-ant-...` — or use an Anthropic key\n"+
+					"`export OPENROUTER_API_KEY=sk-or-...` — or use OpenRouter for 100+ models\n\n"+
+					"Get an OpenRouter key: https://openrouter.ai/?ref=samevault\n\n"+
 					"Your login persists across sessions.")
 		}
 		return
@@ -400,11 +471,11 @@ func (b *Bot) handleWorkspaceComplete(chatID, userID int64) {
 				b.triggerVaultSeed(chatID, userID, userIDStr, seed, topic)
 				if authType == "skip" {
 					b.sendMarkdown(chatID,
-						"*To use AI in your workspace:*\n"+
-							"Run this in the terminal:\n"+
-							"`export ANTHROPIC_API_KEY=your-key`\n"+
-							"Then type `claude` to start.\n\n"+
-							"Get a key: https://console.anthropic.com/settings/keys")
+						"*To use AI in your workspace:*\n\n"+
+							"`claude login` — sign in with your Claude account\n"+
+							"`export ANTHROPIC_API_KEY=sk-ant-...` — or use an Anthropic key\n"+
+							"`export OPENROUTER_API_KEY=sk-or-...` — or use OpenRouter for 100+ models\n\n"+
+							"Get an OpenRouter key: https://openrouter.ai/?ref=samevault")
 				}
 				return
 			}
@@ -461,8 +532,14 @@ type webAppInlineKeyboardMarkup struct {
 // sendWorkspaceReady sends the "workspace ready" message with the terminal button.
 // machineID is included in the URL so Fly's proxy can route to the correct machine.
 func (b *Bot) sendWorkspaceReady(chatID int64, token, machineID string) {
-	b.logEvent(chatID, analytics.EventWorkspaceCreated, "")
+	// Track workspace creation with structured properties.
+	b.trackEvent(chatID, analytics.EventWorkspaceCreated, map[string]string{
+		"user_id":    strconv.FormatInt(chatID, 10),
+		"region":     b.cfg.Bot.FlyRegion,
+		"machine_id": machineID,
+	})
 	terminalURL := fmt.Sprintf("https://%s/?token=%s&instance=%s", b.workspaceHost(), token, machineID)
+	b.logger.Printf("sendWorkspaceReady: chat=%d machine=%s host=%s", chatID, machineID, b.workspaceHost())
 
 	text := "*Your workspace is ready.*\n\n" +
 		"Tap below to open your terminal.\n\n" +
@@ -623,6 +700,7 @@ func (b *Bot) handleDestroyConfirmation(msg *tgbotapi.Message) bool {
 
 // injectWorkspaceAPIKey pushes an API key into the user's running workspace
 // container so CLI tools (Claude Code, etc.) can use it immediately.
+// For OpenRouter, it also injects the base URL env var.
 func (b *Bot) injectWorkspaceAPIKey(userID int64, rawKey, backend string) {
 	if b.orchestrator == nil {
 		return
@@ -634,8 +712,17 @@ func (b *Bot) injectWorkspaceAPIKey(userID int64, rawKey, backend string) {
 		defer cancel()
 		if err := b.orchestrator.InjectAPIKey(ctx, userIDStr, envName, rawKey); err != nil {
 			b.logger.Printf("failed to inject API key for user %d: %v", userID, err)
-		} else {
-			b.logger.Printf("API key (%s) injected into workspace for user %d", envName, userID)
+			return
+		}
+		b.logger.Printf("API key (%s) injected into workspace for user %d", envName, userID)
+
+		// OpenRouter also needs the base URL env var for Claude Code compatibility.
+		if backend == "openrouter" {
+			if err := b.orchestrator.InjectEnvVar(ctx, userIDStr, "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"); err != nil {
+				b.logger.Printf("failed to inject OPENROUTER_BASE_URL for user %d: %v", userID, err)
+			} else {
+				b.logger.Printf("OPENROUTER_BASE_URL injected into workspace for user %d", userID)
+			}
 		}
 	}()
 }
@@ -645,6 +732,8 @@ func detectKeyBackend(key string) string {
 	switch {
 	case strings.HasPrefix(key, "sk-ant-"):
 		return "claude"
+	case strings.HasPrefix(key, "sk-or-"):
+		return "openrouter"
 	case strings.HasPrefix(key, "sk-"):
 		return "openai"
 	case strings.HasPrefix(key, "AIzaSy"):
@@ -661,6 +750,8 @@ func envNameForBackend(backend string) string {
 		return "OPENAI_API_KEY"
 	case "gemini":
 		return "GOOGLE_API_KEY"
+	case "openrouter":
+		return "OPENROUTER_API_KEY"
 	default:
 		return "ANTHROPIC_API_KEY"
 	}

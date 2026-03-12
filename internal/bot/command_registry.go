@@ -56,8 +56,13 @@ var internalOnlyCommands = []tgbotapi.BotCommand{
 var botCommands = append(append([]tgbotapi.BotCommand{}, alwaysCommands...), internalOnlyCommands...)
 
 // workspaceCommands are shown in workspace mode (minimal — just start and help).
+// Admin commands (/update, /machines) are not listed here — they work but
+// are intentionally hidden from the user-facing menu.
 var workspaceCommands = []tgbotapi.BotCommand{
 	{Command: "start", Description: "Set up your workspace"},
+	{Command: "export", Description: "Session summary or takeout archive"},
+	{Command: "import", Description: "Import files into workspace"},
+	{Command: "newbot", Description: "Create and deploy a new Telegram bot"},
 	{Command: "destroy", Description: "Permanently delete your workspace"},
 	{Command: "feedback", Description: "Send feedback to the team"},
 	{Command: "privacy", Description: "Toggle analytics opt-out"},
@@ -82,6 +87,12 @@ func (b *Bot) generateHelpText() string {
 	if b.isWorkspaceMode() {
 		return "*SameVault Commands*\n\n" +
 			"/start -- Set up your workspace\n" +
+			"/export -- Session summary\n" +
+			"/export takeout -- Download workspace as .tar.gz\n" +
+			"/export on -- Auto-export on session end\n" +
+			"/export off -- Disable auto-export\n" +
+			"/import -- Import files into workspace (upload or URL)\n" +
+			"/newbot -- Create and deploy a new Telegram bot\n" +
 			"/destroy -- Permanently delete your workspace\n" +
 			"/feedback -- Send feedback to the team\n" +
 			"/privacy -- Toggle analytics opt-out\n" +

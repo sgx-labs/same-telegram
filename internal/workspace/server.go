@@ -1,12 +1,11 @@
 // Package workspace provides a WebSocket-to-terminal relay server.
 //
 // It bridges xterm.js clients (Telegram Mini App, web browser, future native
-// apps) to a persistent tmux session running inside the container. The tmux
-// session survives client disconnects — users can close Telegram and come back
-// hours later to find their work exactly where they left it.
+// apps) to a shell running on a direct PTY inside the container. Each WebSocket
+// connection spawns its own shell process for clean, escape-sequence-free output.
 //
 // Design notes:
-//   - One tmux session per container ("main"). Multiple clients can attach.
+//   - Each WebSocket connection gets its own login shell via a PTY.
 //   - WebSocket carries binary terminal I/O and JSON control messages (resize).
 //   - Auth is token-based. In production, tokens are issued by the bot after
 //     verifying Telegram identity. For development, --token flag or no auth.
@@ -23,13 +22,28 @@ import (
 	"os"
 	"sync"
 	"time"
+
+	"github.com/sgx-labs/same-telegram/internal/analytics"
 )
 
-// Server relays WebSocket connections to a persistent tmux session.
+// DisconnectInfo holds metadata about a session disconnect for callbacks.
+type DisconnectInfo struct {
+	SessionID string
+	Duration  time.Duration
+}
+
+// Server relays WebSocket connections to shell processes via direct PTY.
 type Server struct {
 	Addr      string // listen address (default ":8080")
 	AuthToken string // required token for connections (empty = no auth)
-	Shell     string // shell to run inside tmux (default "bash")
+	Shell     string // shell to run (default "bash")
+
+	// Analytics tracks workspace connection events (nil if init fails — non-fatal).
+	Analytics *analytics.Store
+
+	// OnDisconnect is called when a WebSocket session ends (optional).
+	// The callback runs in a goroutine and must not block indefinitely.
+	OnDisconnect func(info DisconnectInfo)
 
 	mu       sync.Mutex
 	sessions map[string]*Session
@@ -89,19 +103,25 @@ func machineReplay(next http.Handler) http.Handler {
 }
 
 // Run starts the HTTP server and blocks until ctx is cancelled.
-// On shutdown, active sessions are preserved (tmux keeps running).
 func (s *Server) Run(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", s.handleWebSocket)
 	mux.HandleFunc("/health", s.handleHealth)
 
 	// Serve the xterm.js terminal UI if available.
+	// Disable caching so Telegram WebView always gets the latest frontend.
 	webDir := os.Getenv("WEB_DIR")
 	if webDir == "" {
 		webDir = "web/terminal"
 	}
 	if info, err := os.Stat(webDir); err == nil && info.IsDir() {
-		mux.Handle("/", http.FileServer(http.Dir(webDir)))
+		fs := http.FileServer(http.Dir(webDir))
+		mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+			w.Header().Set("Pragma", "no-cache")
+			w.Header().Set("Expires", "0")
+			fs.ServeHTTP(w, r)
+		}))
 	}
 
 	srv := &http.Server{
@@ -119,10 +139,13 @@ func (s *Server) Run(ctx context.Context) error {
 	// Graceful shutdown: close listener, let in-flight requests finish.
 	go func() {
 		<-ctx.Done()
-		log.Println("shutting down workspace server (sessions will persist in tmux)")
+		log.Println("shutting down workspace server")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		srv.Shutdown(shutdownCtx)
+		if s.Analytics != nil {
+			s.Analytics.Close()
+		}
 	}()
 
 	if err := srv.Serve(ln); err != http.ErrServerClosed {
@@ -150,17 +173,14 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// getOrCreateSession returns the default tmux session, creating it if needed.
-// If the session died (e.g., user typed `exit`), a new one is created.
+// getOrCreateSession returns a session for the connection.
+// Since sessions are now per-connection (each gets its own shell), this
+// simply creates a new Session struct each time.
 func (s *Server) getOrCreateSession() (*Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	const defaultID = "main"
-	if sess, ok := s.sessions[defaultID]; ok && sess.IsAlive() {
-		return sess, nil
-	}
-
 	sess, err := NewSession(defaultID, s.Shell)
 	if err != nil {
 		return nil, fmt.Errorf("could not create terminal session: %w", err)

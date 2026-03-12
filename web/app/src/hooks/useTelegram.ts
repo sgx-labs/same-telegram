@@ -24,21 +24,48 @@ interface TelegramTheme {
   header_bg_color?: string;
 }
 
+interface SafeAreaInset {
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+}
+
+interface TelegramMainButton {
+  text: string;
+  isVisible: boolean;
+  show: () => void;
+  hide: () => void;
+  onClick: (callback: () => void) => void;
+  offClick: (callback: () => void) => void;
+  setText: (text: string) => void;
+  setParams: (params: { text?: string; color?: string; text_color?: string; is_active?: boolean; is_visible?: boolean }) => void;
+}
+
 interface TelegramWebApp {
   ready: () => void;
   expand: () => void;
   requestFullscreen?: () => void;
+  exitFullscreen?: () => void;
   disableVerticalSwipes?: () => void;
   themeParams: TelegramTheme;
   colorScheme: 'light' | 'dark';
+  viewportHeight?: number;
+  viewportStableHeight?: number;
   isFullscreen?: boolean;
+  safeAreaInset?: SafeAreaInset;
+  contentSafeAreaInset?: SafeAreaInset;
+  MainButton?: TelegramMainButton;
   HapticFeedback: {
     impactOccurred: (style: 'light' | 'medium' | 'heavy' | 'rigid' | 'soft') => void;
     notificationOccurred: (type: 'error' | 'success' | 'warning') => void;
     selectionChanged: () => void;
   };
-  onEvent: (event: string, callback: () => void) => void;
-  offEvent: (event: string, callback: () => void) => void;
+  openLink?: (url: string) => void;
+  readTextFromClipboard?: (callback: (text: string | null) => void) => void;
+  hideKeyboard?: () => void;
+  onEvent: (event: string, callback: (...args: unknown[]) => void) => void;
+  offEvent: (event: string, callback: (...args: unknown[]) => void) => void;
 }
 
 declare global {
@@ -68,14 +95,10 @@ export function useTelegram() {
     // Expand to full height
     tg.expand();
 
-    // Request fullscreen for maximum terminal space
-    if (tg.requestFullscreen) {
-      try {
-        tg.requestFullscreen();
-      } catch {
-        // Fullscreen not supported in this version
-      }
-    }
+    // Don't use requestFullscreen() — it pushes content behind the
+    // Telegram header (Close/minimize buttons) and contentSafeAreaInset
+    // isn't reliably supported across Telegram versions. expand() alone
+    // gives us the full area below the native header.
 
     // Disable vertical swipe-to-close while in terminal
     if (tg.disableVerticalSwipes) {
@@ -84,6 +107,29 @@ export function useTelegram() {
 
     // Apply theme CSS variables
     applyThemeVars(tg.themeParams);
+    applySafeAreaVars(tg);
+
+    // Track Telegram viewport height (changes with keyboard open/close).
+    // This CSS variable is used by App.tsx for accurate layout height.
+    const syncViewportHeight = () => {
+      if (tg.viewportStableHeight) {
+        document.documentElement.style.setProperty(
+          '--tg-viewport-height',
+          `${tg.viewportStableHeight}px`
+        );
+      } else if (tg.viewportHeight) {
+        document.documentElement.style.setProperty(
+          '--tg-viewport-height',
+          `${tg.viewportHeight}px`
+        );
+      }
+    };
+    syncViewportHeight();
+
+    // Listen for viewport changes (keyboard open/close)
+    const handleViewportChange = () => {
+      syncViewportHeight();
+    };
 
     // Listen for theme changes (user switches dark/light mode)
     const handleThemeChange = () => {
@@ -93,10 +139,22 @@ export function useTelegram() {
       }
     };
 
+    // Re-sync safe area on fullscreen/viewport changes
+    const handleSafeAreaChange = () => applySafeAreaVars(tg);
+
     tg.onEvent('themeChanged', handleThemeChange);
+    tg.onEvent('viewportChanged', handleViewportChange);
+    tg.onEvent('fullscreenChanged', handleSafeAreaChange);
+    tg.onEvent('safeAreaChanged', handleSafeAreaChange);
+    tg.onEvent('contentSafeAreaChanged', handleSafeAreaChange);
 
     return () => {
       tg.offEvent('themeChanged', handleThemeChange);
+      tg.offEvent('viewportChanged', handleViewportChange);
+      tg.offEvent('fullscreenChanged', handleSafeAreaChange);
+      tg.offEvent('safeAreaChanged', handleSafeAreaChange);
+      tg.offEvent('contentSafeAreaChanged', handleSafeAreaChange);
+
     };
   }, []);
 
@@ -116,6 +174,28 @@ export function useTelegram() {
   };
 
   return { isInTelegram, colorScheme, haptic };
+}
+
+/**
+ * Sync Telegram safe area insets to CSS custom properties.
+ * In fullscreen mode, contentSafeAreaInset provides the offset
+ * needed to clear the Telegram header / Dynamic Island.
+ */
+function applySafeAreaVars(tg: TelegramWebApp) {
+  const root = document.documentElement;
+  const sa = tg.safeAreaInset;
+  const csa = tg.contentSafeAreaInset;
+
+  if (sa) {
+    root.style.setProperty('--tg-safe-top', `${sa.top}px`);
+    root.style.setProperty('--tg-safe-bottom', `${sa.bottom}px`);
+    root.style.setProperty('--tg-safe-left', `${sa.left}px`);
+    root.style.setProperty('--tg-safe-right', `${sa.right}px`);
+  }
+  if (csa) {
+    root.style.setProperty('--tg-content-safe-top', `${csa.top}px`);
+    root.style.setProperty('--tg-content-safe-bottom', `${csa.bottom}px`);
+  }
 }
 
 /**

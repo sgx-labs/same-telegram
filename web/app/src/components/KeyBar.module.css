@@ -2,9 +2,24 @@
   background: var(--sv-chrome-bg);
   border-top: 1px solid var(--sv-chrome-border);
   padding: var(--sv-space-1) var(--sv-space-2);
-  padding-bottom: max(var(--sv-space-1), env(safe-area-inset-bottom, 0px));
+  padding-bottom: max(var(--sv-space-1), env(safe-area-inset-bottom, 4px));
   z-index: var(--sv-z-keybar);
   flex-shrink: 0;
+  /* Fade edges to hint at horizontal scrollability */
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0px,
+    black 8px,
+    black calc(100% - 8px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent 0px,
+    black 8px,
+    black calc(100% - 8px),
+    transparent 100%
+  );
 }
 
 .scroll {
@@ -14,6 +29,15 @@
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
   padding: var(--sv-space-1) 0;
+  /* Horizontal safe areas for landscape iPhones with notch */
+  padding-left: max(0px, env(safe-area-inset-left, 0px));
+  padding-right: max(0px, env(safe-area-inset-right, 0px));
+  /* Smooth scroll snap for narrow screens */
+  scroll-behavior: smooth;
+}
+
+.scroll::-webkit-scrollbar {
+  display: none;
 }
 
 .key {
@@ -55,6 +79,20 @@
   background: var(--sv-accent);
 }
 
+/* Command drawer trigger button */
+.menuBtn {
+  background: var(--sv-accent);
+  color: var(--sv-accent-text);
+  border-color: var(--sv-accent);
+  font-size: var(--sv-font-size-lg);
+  font-weight: 700;
+}
+
+.menuBtn:active {
+  background: var(--sv-accent);
+  opacity: 0.8;
+}
+
 /* Add spacing before group-starting keys */
 .group {
   margin-left: var(--sv-space-2);
@@ -68,7 +106,8 @@
   .key {
     font-size: 10px;
     padding: var(--sv-space-1) var(--sv-space-2);
-    min-width: 36px;
-    min-height: 36px;
+    /* Keep 44px minimum for Apple HIG touch targets */
+    min-width: var(--sv-touch-min);
+    min-height: var(--sv-touch-min);
   }
 }

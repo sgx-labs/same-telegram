@@ -1,0 +1,27 @@
+# SameVault — Customer Support Bot
+#
+# Deploy: fly launch --copy-config --no-deploy
+#         fly secrets set TELEGRAM_BOT_TOKEN=... OPENROUTER_API_KEY=...
+#         fly deploy
+
+app = "my-support-bot"
+primary_region = "iad"
+kill_signal = "SIGTERM"
+kill_timeout = "5s"
+
+[build]
+
+[env]
+  VAULT_PATH = "/data/vault"
+
+# No HTTP services — this is a long-poll Telegram bot.
+
+[mounts]
+  source = "bot_data"
+  destination = "/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = 256
+  auto_stop_machines = "off"
+  auto_start_machines = false

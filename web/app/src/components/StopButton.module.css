@@ -1,0 +1,81 @@
+/* Zero-height flex child — doesn't affect layout.
+   The button is positioned absolutely above this point (above InputBar). */
+.wrapper {
+  position: relative;
+  height: 0;
+  flex-shrink: 0;
+  z-index: var(--sv-z-overlay);
+}
+
+.button {
+  position: absolute;
+  bottom: var(--sv-space-3);
+  left: 50%;
+  transform: translateX(-50%) translateY(12px) scale(0.9);
+  display: flex;
+  align-items: center;
+  gap: var(--sv-space-2);
+  padding: var(--sv-space-3) var(--sv-space-6);
+  min-height: var(--sv-touch-comfortable);
+  border: none;
+  border-radius: var(--sv-radius-lg);
+  background: var(--sv-error);
+  color: #fff;
+  font-family: var(--sv-font-sans);
+  font-size: var(--sv-font-size-lg);
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(247, 118, 142, 0.4),
+              0 2px 8px rgba(0, 0, 0, 0.3);
+  -webkit-tap-highlight-color: transparent;
+  opacity: 0;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.button.visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0) scale(1);
+  pointer-events: auto;
+  animation: stopAppear 200ms ease-out forwards;
+}
+
+.button.hidden {
+  opacity: 0;
+  transform: translateX(-50%) translateY(12px) scale(0.9);
+  pointer-events: none;
+  animation: stopDisappear 200ms ease-out forwards;
+}
+
+.button:active {
+  transform: translateX(-50%) scale(0.95) !important;
+  background: #e05570;
+}
+
+.icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+@keyframes stopAppear {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(12px) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+}
+
+@keyframes stopDisappear {
+  from {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-50%) translateY(12px) scale(0.9);
+  }
+}

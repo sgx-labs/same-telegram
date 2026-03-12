@@ -138,8 +138,9 @@ func (c *Client) CreateMachine(ctx context.Context, userID, token string) (*Mach
 		Guest: &GuestConfig{
 			CPUKind:  "shared",
 			CPUs:     1,
-			MemoryMB: 256,
+			MemoryMB: 512,
 		},
+		AutoStop: &AutoStopConfig{Enabled: true},
 		Services: []ServiceConfig{
 			{
 				Protocol:     "tcp",
@@ -218,6 +219,22 @@ func (c *Client) DestroyMachine(ctx context.Context, machineID string) error {
 	return nil
 }
 
+// UpdateMachine updates an existing machine's configuration (e.g., image)
+// without destroying it. The volume remains attached, preserving user data.
+// Uses POST /v1/apps/{app}/machines/{machine_id} with the full config.
+// The machine should be stopped before updating; Fly will start it after.
+func (c *Client) UpdateMachine(ctx context.Context, machineID string, config *MachineConfig) (*Machine, error) {
+	body := map[string]any{
+		"config": config,
+	}
+
+	var machine Machine
+	if err := c.do(ctx, "POST", c.machinesURL("/"+machineID), body, &machine); err != nil {
+		return nil, fmt.Errorf("could not update workspace: %w", err)
+	}
+	return &machine, nil
+}
+
 // GetMachine returns the current state of a machine.
 func (c *Client) GetMachine(ctx context.Context, machineID string) (*Machine, error) {
 	var machine Machine
@@ -261,6 +278,25 @@ func (c *Client) ExecCommand(ctx context.Context, machineID string, cmd []string
 		return fmt.Errorf("could not exec command in workspace: %w", err)
 	}
 	return nil
+}
+
+// ExecResult holds the output from an exec command.
+type ExecResult struct {
+	Stdout   string `json:"stdout"`
+	Stderr   string `json:"stderr"`
+	ExitCode int    `json:"exit_code"`
+}
+
+// ExecCommandOutput runs a command inside a running machine and captures stdout/stderr.
+func (c *Client) ExecCommandOutput(ctx context.Context, machineID string, cmd []string) (*ExecResult, error) {
+	body := map[string]any{
+		"command": cmd,
+	}
+	var result ExecResult
+	if err := c.do(ctx, "POST", c.machinesURL("/"+machineID+"/exec"), body, &result); err != nil {
+		return nil, fmt.Errorf("could not exec command in workspace: %w", err)
+	}
+	return &result, nil
 }
 
 // --- Volumes ---

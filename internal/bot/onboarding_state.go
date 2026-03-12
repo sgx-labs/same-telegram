@@ -14,9 +14,11 @@ type onboardingState struct {
 	awaitingKey    map[int64]string                       // user ID -> backend they selected
 	awaitingModel  map[int64]bool                         // user ID -> waiting for model name
 	workspaces     map[int64]*workspaceOnboardingState     // user ID -> workspace onboarding
+	newbotFlows    map[int64]*newbotState                 // user ID -> /newbot flow state
 	timestamps     map[int64]time.Time                    // user ID -> last activity time
 	invitedUsers   map[int64]bool                         // user IDs that have used an invite code
 	pendingDestroy map[int64]time.Time                    // user ID -> when /destroy was requested (expires after 60s)
+	pendingImport  map[int64]time.Time                    // user ID -> when /import was requested (expires after 5 min)
 }
 
 func newOnboardingState() *onboardingState {
@@ -24,9 +26,11 @@ func newOnboardingState() *onboardingState {
 		awaitingKey:    make(map[int64]string),
 		awaitingModel:  make(map[int64]bool),
 		workspaces:     make(map[int64]*workspaceOnboardingState),
+		newbotFlows:    make(map[int64]*newbotState),
 		timestamps:     make(map[int64]time.Time),
 		invitedUsers:   make(map[int64]bool),
 		pendingDestroy: make(map[int64]time.Time),
+		pendingImport:  make(map[int64]time.Time),
 	}
 }
 
@@ -113,12 +117,43 @@ func (o *onboardingState) clearAwaitingModel(userID int64) {
 	o.mu.Unlock()
 }
 
+// setPendingImport marks a user as waiting for a file upload to import.
+func (o *onboardingState) setPendingImport(userID int64) {
+	o.mu.Lock()
+	o.pendingImport[userID] = time.Now()
+	o.mu.Unlock()
+}
+
+// hasPendingImport returns true if the user has a pending import that hasn't expired (5 min TTL).
+func (o *onboardingState) hasPendingImport(userID int64) bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	ts, ok := o.pendingImport[userID]
+	if !ok {
+		return false
+	}
+	if time.Since(ts) > 5*time.Minute {
+		delete(o.pendingImport, userID)
+		return false
+	}
+	return true
+}
+
+// clearPendingImport removes the pending import state for a user.
+func (o *onboardingState) clearPendingImport(userID int64) {
+	o.mu.Lock()
+	delete(o.pendingImport, userID)
+	o.mu.Unlock()
+}
+
 // clear removes all onboarding state for a user.
 func (o *onboardingState) clear(userID int64) {
 	o.mu.Lock()
 	delete(o.awaitingKey, userID)
 	delete(o.awaitingModel, userID)
+	delete(o.newbotFlows, userID)
 	delete(o.timestamps, userID)
+	delete(o.pendingImport, userID)
 	o.mu.Unlock()
 }
 
@@ -148,6 +183,12 @@ func (o *onboardingState) evictExpired() {
 			delete(o.awaitingKey, uid)
 			delete(o.awaitingModel, uid)
 			delete(o.timestamps, uid)
+		}
+	}
+	// Evict expired pending imports (5 min TTL).
+	for uid, ts := range o.pendingImport {
+		if now.After(ts.Add(5 * time.Minute)) {
+			delete(o.pendingImport, uid)
 		}
 	}
 }

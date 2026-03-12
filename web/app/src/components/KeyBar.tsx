@@ -1,10 +1,15 @@
 import { useState, useCallback, useRef } from 'react';
-import type { Terminal } from '@xterm/xterm';
 import styles from './KeyBar.module.css';
+
+/** Get the global WebSocket send function exposed by Terminal */
+function getWsSendGlobal(): ((data: string) => void) | null {
+  return (window as unknown as Record<string, unknown>).__wsSend as ((data: string) => void) | null;
+}
 
 interface KeyBarProps {
   hapticTap?: () => void;
   hapticSelection?: () => void;
+  onCommandDrawer?: () => void;
 }
 
 interface KeyDef {
@@ -48,18 +53,18 @@ const KEYS: KeyDef[] = [
  * - Haptic feedback on every press
  * - Contextual visual state
  */
-export default function KeyBar({ hapticTap, hapticSelection }: KeyBarProps) {
+export default function KeyBar({ hapticTap, hapticSelection, onCommandDrawer }: KeyBarProps) {
   const [ctrlActive, setCtrlActive] = useState(false);
   const [altActive, setAltActive] = useState(false);
   const repeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const getTerminal = useCallback((): Terminal | null => {
-    return (window as unknown as Record<string, unknown>).__terminal as Terminal | null;
+  const getWsSend = useCallback((): ((data: string) => void) | null => {
+    return (window as unknown as Record<string, unknown>).__wsSend as ((data: string) => void) | null;
   }, []);
 
   const sendToTerminal = useCallback((seq: string) => {
-    const term = getTerminal();
-    if (!term) return;
+    const send = getWsSend();
+    if (!send) return;
 
     let finalSeq = seq;
 
@@ -77,9 +82,9 @@ export default function KeyBar({ hapticTap, hapticSelection }: KeyBarProps) {
       setCtrlActive(false);
     }
 
-    term.paste(finalSeq);
-    term.focus();
-  }, [getTerminal, ctrlActive, altActive]);
+    // Send directly to WebSocket (bypasses xterm.js input handler)
+    send(finalSeq);
+  }, [getWsSend, ctrlActive, altActive]);
 
   const handlePress = useCallback((key: KeyDef) => {
     hapticTap?.();
@@ -111,11 +116,11 @@ export default function KeyBar({ hapticTap, hapticSelection }: KeyBarProps) {
     if (!key.seq?.startsWith('\x1b[')) return; // Only arrows
     repeatTimerRef.current = setInterval(() => {
       if (key.seq) {
-        const term = getTerminal();
-        term?.paste(key.seq);
+        const send = getWsSend();
+        if (send) send(key.seq);
       }
     }, 80);
-  }, [getTerminal]);
+  }, [getWsSend]);
 
   const stopRepeat = useCallback(() => {
     if (repeatTimerRef.current) {
@@ -124,9 +129,91 @@ export default function KeyBar({ hapticTap, hapticSelection }: KeyBarProps) {
     }
   }, []);
 
+  // Dismiss keyboard — use Telegram hideKeyboard API (v9.1+), fallback to blur
+  const handleDismiss = useCallback(() => {
+    hapticTap?.();
+    const tg = window.Telegram?.WebApp;
+    if (tg && 'hideKeyboard' in tg) {
+      (tg as unknown as { hideKeyboard: () => void }).hideKeyboard();
+    }
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  }, [hapticTap]);
+
+  // Paste from clipboard into terminal — try multiple approaches
+  const handlePaste = useCallback(async () => {
+    hapticTap?.();
+    const send = getWsSendGlobal();
+    if (!send) return;
+
+    // 1. Try Telegram's readTextFromClipboard (works in attachment menu Mini Apps)
+    const tg = window.Telegram?.WebApp;
+    if (tg && 'readTextFromClipboard' in tg) {
+      (tg as unknown as { readTextFromClipboard: (cb: (text: string | null) => void) => void })
+        .readTextFromClipboard((text) => {
+          if (text) send(text);
+        });
+      return;
+    }
+
+    // 2. Try browser Clipboard API
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) { send(text); return; }
+    } catch { /* blocked in WebView — expected */ }
+
+    // 3. Fallback: focus a temporary textarea so user can long-press paste
+    const ta = document.createElement('textarea');
+    ta.style.cssText = 'position:fixed;top:50%;left:10%;width:80%;z-index:9999;font-size:16px;padding:12px;border-radius:8px;background:#1a1b26;color:#a9b1d6;border:1px solid #7aa2f7;';
+    ta.placeholder = 'Long-press here to paste, then tap Done';
+    document.body.appendChild(ta);
+    ta.focus();
+    const cleanup = () => {
+      if (ta.value) send(ta.value);
+      ta.remove();
+    };
+    ta.addEventListener('blur', cleanup, { once: true });
+    // Auto-remove after 10s
+    setTimeout(() => { if (ta.parentNode) cleanup(); }, 10000);
+  }, [hapticTap]);
+
   return (
     <div className={styles.keybar}>
       <div className={styles.scroll}>
+        {onCommandDrawer && (
+          <button
+            className={`${styles.key} ${styles.menuBtn}`}
+            onPointerDown={(e) => {
+              e.preventDefault();
+              hapticTap?.();
+              onCommandDrawer();
+            }}
+            onContextMenu={(e) => e.preventDefault()}
+          >
+            +
+          </button>
+        )}
+        <button
+          className={styles.key}
+          onPointerDown={(e) => {
+            e.preventDefault();
+            handlePaste();
+          }}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          Paste
+        </button>
+        <button
+          className={styles.key}
+          onPointerDown={(e) => {
+            e.preventDefault();
+            handleDismiss();
+          }}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          ▼
+        </button>
         {KEYS.map((key, i) => {
           const isActive =
             (key.modifier === 'ctrl' && ctrlActive) ||

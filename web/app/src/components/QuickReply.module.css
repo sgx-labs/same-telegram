@@ -1,0 +1,105 @@
+/* QuickReply — floating quick-reply buttons above InputBar */
+
+.container {
+  position: relative;
+  flex-shrink: 0;
+  z-index: var(--sv-z-keybar);
+}
+
+.bar {
+  display: flex;
+  gap: var(--sv-space-2);
+  padding: var(--sv-space-2) var(--sv-space-3);
+  padding-left: max(var(--sv-space-3), env(safe-area-inset-left, 0px));
+  padding-right: max(var(--sv-space-3), env(safe-area-inset-right, 0px));
+  background: color-mix(in srgb, var(--sv-chrome-bg) 90%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-top: 1px solid var(--sv-chrome-border);
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  animation: slideUp 150ms ease-out;
+}
+
+.bar::-webkit-scrollbar {
+  display: none;
+}
+
+.pill {
+  font-family: var(--sv-font-mono);
+  font-size: var(--sv-font-size-sm);
+  font-weight: 500;
+  color: var(--sv-accent);
+  background: var(--sv-terminal-bg);
+  border: 1px solid var(--sv-accent);
+  border-radius: 999px;
+  padding: var(--sv-space-1) var(--sv-space-3);
+  min-height: var(--sv-touch-min);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: transform var(--sv-transition-fast),
+              background var(--sv-transition-fast),
+              color var(--sv-transition-fast);
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.pill:active {
+  transform: scale(0.93);
+  background: var(--sv-accent);
+  color: var(--sv-accent-text);
+}
+
+.pillNumber {
+  font-weight: 700;
+  margin-right: var(--sv-space-1);
+  opacity: 0.7;
+}
+
+.pillLabel {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Special pill for Continue / Yes / No */
+.pillSpecial {
+  composes: pill;
+  border-color: var(--sv-success);
+  color: var(--sv-success);
+}
+
+.pillSpecial:active {
+  background: var(--sv-success);
+  color: var(--sv-accent-text);
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 480px) {
+  .pill {
+    font-size: 12px;
+    padding: var(--sv-space-1) var(--sv-space-2);
+    min-height: var(--sv-touch-min);
+  }
+
+  .pillLabel {
+    max-width: 120px;
+  }
+}

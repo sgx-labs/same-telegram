@@ -11,7 +11,8 @@ kill_timeout = "5s"
   BOT_MODE = "workspace"
   WORKSPACE_APP_NAME = "samevault-workspaces"
   FLY_REGION = "iad"
-  FLY_IMAGE = "registry.fly.io/samevault-workspaces:latest"
+  FLY_IMAGE = "registry.fly.io/samevault-workspaces:deployment-01KKHX5EKACMRYXX969WZAMVZ7"
+  ALLOWED_USER_IDS = "95419682,223389379,147604529,1056335543,92100691,182189507,64940920,1032905459"
 
 # No HTTP services — this is a long-poll Telegram bot, not a web server.
 

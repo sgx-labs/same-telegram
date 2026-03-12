@@ -137,6 +137,24 @@ func (b *Bot) isWorkspaceMode() bool {
 	return b.cfg.Bot.IsWorkspaceMode()
 }
 
+// isBlockedUser returns true if this user should be blocked.
+// Public mode: everyone allowed. Workspace/internal mode: check allowlist if configured.
+func (b *Bot) isBlockedUser(userID int64) bool {
+	if b.isPublicMode() {
+		return false
+	}
+	if len(b.allowedUsers) == 0 {
+		// No allowlist configured — open access (workspace mode default).
+		return false
+	}
+	return !b.allowedUsers[userID]
+}
+
+// hasAllowlist returns true if an explicit user allowlist is configured.
+func (b *Bot) hasAllowlist() bool {
+	return len(b.allowedUsers) > 0
+}
+
 // initOrchestrator creates the MachineStore and Fly Machines client for workspace mode.
 func (b *Bot) initOrchestrator() error {
 	dbPath := expandHome(b.cfg.Bot.MachineDBPath)
@@ -240,9 +258,11 @@ func (b *Bot) SendNotification(n *notify.Notification) {
 }
 
 func (b *Bot) handleUpdate(msg *tgbotapi.Message) {
-	// Security: in internal mode, silently drop messages from unknown users.
-	// In public and workspace modes, allow all users (open access).
-	if !b.isPublicMode() && !b.isWorkspaceMode() && !b.allowedUsers[msg.From.ID] {
+	// Security: drop messages from unauthorized users.
+	// In workspace mode: if allowlist is configured, enforce it; otherwise open.
+	// In internal mode: always enforce allowlist.
+	// In public mode: allow all.
+	if b.isBlockedUser(msg.From.ID) {
 		b.logger.Printf("Dropped message from unauthorized user %d (%s)", msg.From.ID, msg.From.UserName)
 		return
 	}
@@ -264,6 +284,13 @@ func (b *Bot) handleUpdate(msg *tgbotapi.Message) {
 		return
 	}
 
+	// Check for document uploads (file attachments) — used by /import flow.
+	if msg.Document != nil && b.isWorkspaceMode() {
+		if b.handleImportFile(msg) {
+			return
+		}
+	}
+
 	// Non-command text
 	if msg.Text != "" {
 		// Check if user is confirming workspace destruction.
@@ -273,6 +300,11 @@ func (b *Bot) handleUpdate(msg *tgbotapi.Message) {
 
 		// Check if user pasted an invite code.
 		if b.isWorkspaceMode() && b.handleInviteCodeInput(msg) {
+			return
+		}
+
+		// Check if user is in /newbot flow (awaiting bot token)
+		if b.isWorkspaceMode() && b.handleNewbotTokenInput(msg) {
 			return
 		}
 
@@ -305,7 +337,7 @@ func (b *Bot) handleUpdate(msg *tgbotapi.Message) {
 
 		// Default behavior depends on mode.
 		if b.isWorkspaceMode() {
-			if b.requiresInviteCode() && !b.hasValidInvite(msg.From.ID) {
+			if !b.hasAllowlist() && b.requiresInviteCode() && !b.hasValidInvite(msg.From.ID) {
 				b.sendMarkdown(msg.Chat.ID, "If you have an invite code, paste it here.")
 			} else {
 				b.sendMarkdown(msg.Chat.ID, "Use /start to set up your workspace.")
@@ -329,7 +361,7 @@ func (b *Bot) handleUpdate(msg *tgbotapi.Message) {
 var validCallbackPattern = regexp.MustCompile(`^[a-zA-Z0-9_:.\-]{1,64}$`)
 
 func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
-	if !b.isPublicMode() && !b.isWorkspaceMode() && !b.allowedUsers[cb.From.ID] {
+	if b.isBlockedUser(cb.From.ID) {
 		return
 	}
 
@@ -355,6 +387,8 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 	switch {
 	case strings.HasPrefix(cb.Data, "ws:"):
 		b.handleWorkspaceCallback(cb)
+	case strings.HasPrefix(cb.Data, "newbot:"):
+		b.handleNewbotCallback(cb)
 	case strings.HasPrefix(cb.Data, "onboard:"):
 		b.handleOnboardingCallback(cb)
 	case strings.HasPrefix(cb.Data, "mode:"):

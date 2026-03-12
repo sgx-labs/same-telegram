@@ -1,0 +1,103 @@
+.terminalWrapper {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.terminal {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
+  background: var(--sv-terminal-bg);
+  padding: 4px 8px;
+  /* Landscape safe areas for iPhones with notch */
+  padding-left: max(8px, env(safe-area-inset-left, 0px));
+  padding-right: max(8px, env(safe-area-inset-right, 0px));
+  outline: none;
+}
+
+/* Native scrollbar — thin and themed */
+.terminal::-webkit-scrollbar {
+  width: 4px;
+}
+.terminal::-webkit-scrollbar-track {
+  background: transparent;
+}
+.terminal::-webkit-scrollbar-thumb {
+  background: var(--sv-chrome-border);
+  border-radius: 2px;
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.line {
+  font-family: var(--sv-font-mono);
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--sv-terminal-fg);
+  white-space: pre-wrap;
+  word-break: break-all;
+  /* Allow native text selection */
+  user-select: text;
+  -webkit-user-select: text;
+  /* Slightly wider letter spacing for readability on small screens */
+  letter-spacing: 0.01em;
+}
+
+/* Empty lines need height */
+.line:empty::after {
+  content: '\00a0';
+}
+
+/* "New output" floating pill */
+.newOutputPill {
+  position: absolute;
+  bottom: var(--sv-space-3);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 14px;
+  border-radius: 16px;
+  background: rgba(122, 162, 247, 0.18);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: var(--sv-accent);
+  font-family: var(--sv-font-sans);
+  font-size: var(--sv-font-size-xs);
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(122, 162, 247, 0.15);
+  z-index: 5;
+  /* Slide-up entrance animation */
+  animation: pillSlideUp var(--sv-transition-normal) both;
+  /* Tap highlight */
+  -webkit-tap-highlight-color: transparent;
+}
+
+.newOutputPill:active {
+  opacity: 0.7;
+}
+
+@keyframes pillSlideUp {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}

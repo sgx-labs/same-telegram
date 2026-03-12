@@ -1,0 +1,9 @@
+# ~/.bash_profile — Login shell entry point for SameVault workspace.
+#
+# bash -l (login shell) reads this file but does NOT source ~/.bashrc.
+# This shim ensures bashrc is always loaded for login shells (PTY sessions
+# spawned by the workspace server, SSH, etc.).
+
+if [ -f "$HOME/.bashrc" ]; then
+    . "$HOME/.bashrc"
+fi

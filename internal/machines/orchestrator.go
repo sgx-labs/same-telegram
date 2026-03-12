@@ -3,6 +3,7 @@ package machines
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -234,12 +235,25 @@ func (o *Orchestrator) Status(ctx context.Context, userID string) (*UserMachine,
 	// Refresh state from Fly API.
 	machine, err := o.client.GetMachine(ctx, um.MachineID)
 	if err != nil {
-		// If 404, the machine is gone — return nil so /start re-provisions.
 		var apiErr *APIError
-		if errors.As(err, &apiErr) && apiErr.StatusCode == 404 {
-			return nil, nil
+		if errors.As(err, &apiErr) {
+			// 404 = machine gone, any 4xx = not recoverable — clear stale record.
+			if apiErr.StatusCode >= 400 && apiErr.StatusCode < 500 {
+				log.Printf("Status: machine %s for user %s returned %d, clearing stale record", um.MachineID, userID, apiErr.StatusCode)
+				o.store.DeleteUserMachine(userID)
+				return nil, nil
+			}
 		}
-		return um, nil // return cached state if API is otherwise down
+		// 5xx or network error — return cached state (API might be temporarily down).
+		log.Printf("Status: could not reach Fly API for machine %s (user %s): %v", um.MachineID, userID, err)
+		return um, nil
+	}
+
+	// Machine exists but is destroyed — clean up and re-provision on next /start.
+	if machine.State == "destroyed" {
+		log.Printf("Status: machine %s for user %s is destroyed, clearing record", um.MachineID, userID)
+		o.store.DeleteUserMachine(userID)
+		return nil, nil
 	}
 
 	um.State = machine.State
@@ -257,8 +271,16 @@ func (o *Orchestrator) Destroy(ctx context.Context, userID string) error {
 		return fmt.Errorf("no workspace found")
 	}
 
-	// Stop the machine first (ignore errors — it might already be stopped/gone).
-	_ = o.client.StopMachine(ctx, um.MachineID)
+	// Stop the machine first and wait for it to reach "stopped" state.
+	// The Fly API returns 412 if you try to destroy a running machine.
+	if err := o.client.StopMachine(ctx, um.MachineID); err != nil {
+		// Ignore stop errors — the machine might already be stopped or gone.
+		log.Printf("stop before destroy for machine %s returned error (continuing): %v", um.MachineID, err)
+	} else {
+		if err := o.client.WaitForState(ctx, um.MachineID, "stopped", 30*time.Second); err != nil {
+			log.Printf("warning: machine %s did not reach stopped state before destroy: %v", um.MachineID, err)
+		}
+	}
 
 	// Destroy the machine.
 	log.Printf("destroying workspace machine %s for user %s", um.MachineID, userID)
@@ -318,7 +340,11 @@ func (o *Orchestrator) SeedVault(ctx context.Context, userID string, seedType st
 		return fmt.Errorf("no workspace found for user %s", userID)
 	}
 
-	cmd := []string{"bash", "-c", fmt.Sprintf("/workspace/seeds/seed-vault.sh %q %q", seedType, topic)}
+	// SECURITY: Pass seedType and topic as separate arguments to avoid shell injection.
+	// Do NOT interpolate user input into a bash -c string — Go's %q produces
+	// Go-style quoting that does NOT prevent bash command substitution ($(...), `...`).
+	// The seed script receives them as positional parameters $1 and $2.
+	cmd := []string{"/workspace/seeds/seed-vault.sh", seedType, topic}
 
 	log.Printf("seeding vault for user %s: type=%s topic=%q", userID, seedType, topic)
 	if err := o.client.ExecCommand(ctx, um.MachineID, cmd); err != nil {
@@ -341,20 +367,179 @@ func (o *Orchestrator) InjectAPIKey(ctx context.Context, userID, envName, apiKey
 		return fmt.Errorf("no workspace found for user %s", userID)
 	}
 
-	// Use bash printf %q for safe shell quoting of the key value,
-	// and write to the persistent env file. Also set in tmux so
-	// current sessions pick it up without restart.
-	script := fmt.Sprintf(
-		`printf 'export %%s=%%q\n' %q %q > /data/.env && tmux set-environment -g %q %q 2>/dev/null; true`,
-		envName, apiKey, envName, apiKey,
-	)
-
-	cmd := []string{"bash", "-c", script}
+	cmd := shellSafeEnvWrite(envName, apiKey, ">")
 	log.Printf("injecting %s into workspace for user %s", envName, userID)
 	if err := o.client.ExecCommand(ctx, um.MachineID, cmd); err != nil {
 		return fmt.Errorf("could not inject API key: %w", err)
 	}
 	return nil
+}
+
+// InjectEnvVar writes a single environment variable into a running workspace.
+// It appends to /data/.env (persistent) and sets it in the tmux global environment.
+// Unlike InjectAPIKey, this does not overwrite /data/.env — it appends.
+func (o *Orchestrator) InjectEnvVar(ctx context.Context, userID, envName, value string) error {
+	um, err := o.store.GetUserMachine(userID)
+	if err != nil || um == nil {
+		return fmt.Errorf("no workspace found for user %s", userID)
+	}
+
+	cmd := shellSafeEnvWrite(envName, value, ">>")
+	log.Printf("injecting %s into workspace for user %s", envName, userID)
+	if err := o.client.ExecCommand(ctx, um.MachineID, cmd); err != nil {
+		return fmt.Errorf("could not inject env var: %w", err)
+	}
+	return nil
+}
+
+// shellSafeEnvWrite builds a command that safely writes an environment variable
+// to /data/.env and the tmux global environment, without any risk of shell injection.
+//
+// SECURITY: User-supplied values (API keys, URLs) are base64-encoded in Go and
+// decoded inside the script. This avoids interpolating untrusted data into
+// a bash command string — Go's %q does NOT escape shell command substitution
+// ($(...), `...`), so direct interpolation would allow arbitrary command execution.
+//
+// redirectOp must be ">" (overwrite) or ">>" (append).
+func shellSafeEnvWrite(envName, value, redirectOp string) []string {
+	encoded := base64.StdEncoding.EncodeToString([]byte(value))
+	// envName comes from envNameForBackend() which returns hardcoded constants.
+	// Validate it contains only safe characters as defense in depth.
+	safeName := sanitizeEnvName(envName)
+	script := fmt.Sprintf(
+		`_val=$(echo '%s' | base64 -d) && printf 'export %s=%%q\n' "$_val" %s /data/.env && tmux set-environment -g %s "$_val" 2>/dev/null; true`,
+		encoded, safeName, redirectOp, safeName,
+	)
+	return []string{"bash", "-c", script}
+}
+
+// sanitizeEnvName ensures an environment variable name contains only safe characters.
+// Returns the name unchanged if valid, or a safe fallback.
+func sanitizeEnvName(name string) string {
+	for _, c := range name {
+		if !((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_') {
+			return "INJECTED_KEY"
+		}
+	}
+	if name == "" {
+		return "INJECTED_KEY"
+	}
+	return name
+}
+
+// UpdateImage updates a single machine to a new Docker image without destroying
+// it. The volume stays attached, so user data in /data is preserved.
+//
+// Flow: stop machine -> update config with new image -> wait for started.
+func (o *Orchestrator) UpdateImage(ctx context.Context, machineID, newImage string) error {
+	// Get current machine config so we can preserve everything except the image.
+	machine, err := o.client.GetMachine(ctx, machineID)
+	if err != nil {
+		return fmt.Errorf("get machine for update: %w", err)
+	}
+
+	if machine.Config == nil {
+		return fmt.Errorf("machine %s has no config", machineID)
+	}
+
+	// Stop the machine first — Fly requires this for config updates.
+	if machine.State == "started" {
+		log.Printf("UpdateImage: stopping machine %s before update", machineID)
+		if err := o.client.StopMachine(ctx, machineID); err != nil {
+			// Ignore if already stopped.
+			var apiErr *APIError
+			if !errors.As(err, &apiErr) || apiErr.StatusCode != 409 {
+				return fmt.Errorf("stop machine for update: %w", err)
+			}
+		}
+		if err := o.client.WaitForState(ctx, machineID, "stopped", 30*time.Second); err != nil {
+			log.Printf("UpdateImage: warning — machine %s may not have stopped cleanly: %v", machineID, err)
+		}
+	}
+
+	// Update the image in the config.
+	config := machine.Config
+	config.Image = newImage
+
+	log.Printf("UpdateImage: updating machine %s to image %s", machineID, newImage)
+	if _, err := o.client.UpdateMachine(ctx, machineID, config); err != nil {
+		return fmt.Errorf("update machine image: %w", err)
+	}
+
+	// Wait for the machine to come back up.
+	if err := o.client.WaitForState(ctx, machineID, "started", 60*time.Second); err != nil {
+		log.Printf("UpdateImage: warning — machine %s may not have started after update: %v", machineID, err)
+	}
+
+	log.Printf("UpdateImage: machine %s updated to %s", machineID, newImage)
+	return nil
+}
+
+// UpdateAllImages updates every known machine to a new Docker image.
+// Returns a summary of results (machine ID -> error, nil on success).
+func (o *Orchestrator) UpdateAllImages(ctx context.Context, newImage string) map[string]error {
+	results := make(map[string]error)
+
+	// We need a MachineStore that supports listing — check if our store does.
+	type lister interface {
+		ListAllMachines() ([]*UserMachine, error)
+	}
+	ls, ok := o.store.(lister)
+	if !ok {
+		log.Printf("UpdateAllImages: store does not support listing, falling back to Fly API")
+		// Fall back to listing machines via the Fly API.
+		machines, err := o.client.ListMachines(ctx)
+		if err != nil {
+			results["_error"] = fmt.Errorf("list machines: %w", err)
+			return results
+		}
+		for _, m := range machines {
+			results[m.ID] = o.UpdateImage(ctx, m.ID, newImage)
+		}
+		return results
+	}
+
+	machines, err := ls.ListAllMachines()
+	if err != nil {
+		results["_error"] = fmt.Errorf("list machines from store: %w", err)
+		return results
+	}
+
+	for _, um := range machines {
+		results[um.MachineID] = o.UpdateImage(ctx, um.MachineID, newImage)
+	}
+
+	return results
+}
+
+// ExecInWorkspace runs an arbitrary command inside a user's workspace container.
+// The command must be provided as a slice (e.g., []string{"bash", "-c", "echo hi"}).
+func (o *Orchestrator) ExecInWorkspace(ctx context.Context, userID string, cmd []string) error {
+	um, err := o.store.GetUserMachine(userID)
+	if err != nil || um == nil {
+		return fmt.Errorf("no workspace found for user %s", userID)
+	}
+
+	log.Printf("ExecInWorkspace for user %s: %v", userID, cmd)
+	if err := o.client.ExecCommand(ctx, um.MachineID, cmd); err != nil {
+		return fmt.Errorf("exec in workspace failed: %w", err)
+	}
+	return nil
+}
+
+// ExecInWorkspaceOutput runs a command inside a user's workspace and captures stdout/stderr.
+func (o *Orchestrator) ExecInWorkspaceOutput(ctx context.Context, userID string, cmd []string) (*ExecResult, error) {
+	um, err := o.store.GetUserMachine(userID)
+	if err != nil || um == nil {
+		return nil, fmt.Errorf("no workspace found for user %s", userID)
+	}
+
+	log.Printf("ExecInWorkspaceOutput for user %s: %v", userID, cmd)
+	result, err := o.client.ExecCommandOutput(ctx, um.MachineID, cmd)
+	if err != nil {
+		return nil, fmt.Errorf("exec in workspace failed: %w", err)
+	}
+	return result, nil
 }
 
 // generateToken creates a cryptographically random auth token for WebSocket connections.

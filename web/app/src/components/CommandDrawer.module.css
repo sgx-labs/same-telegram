@@ -1,0 +1,186 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: var(--sv-z-overlay);
+  display: flex;
+  align-items: flex-end;
+  animation: fadeIn var(--sv-transition-fast);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+
+.drawer {
+  width: 100%;
+  max-height: 60dvh;
+  background: var(--sv-chrome-bg);
+  border-top: 1px solid var(--sv-chrome-border);
+  border-radius: var(--sv-radius-lg) var(--sv-radius-lg) 0 0;
+  padding: var(--sv-space-2) 0;
+  padding-bottom: max(var(--sv-space-4), env(safe-area-inset-bottom, 12px));
+  display: flex;
+  flex-direction: column;
+  animation: slideUp 200ms ease-out;
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.3);
+}
+
+.handle {
+  width: 36px;
+  height: 4px;
+  background: var(--sv-chrome-border);
+  border-radius: 2px;
+  margin: var(--sv-space-1) auto var(--sv-space-2);
+  flex-shrink: 0;
+}
+
+/* Category tabs — horizontally scrollable on mobile */
+.tabs {
+  display: flex;
+  gap: var(--sv-space-1);
+  padding: 0 var(--sv-space-3);
+  margin-bottom: var(--sv-space-2);
+  flex-shrink: 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  font-family: var(--sv-font-mono);
+  font-size: var(--sv-font-size-xs);
+  font-weight: 500;
+  color: var(--sv-chrome-subtle);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--sv-radius-sm);
+  padding: var(--sv-space-1) var(--sv-space-3);
+  cursor: pointer;
+  white-space: nowrap;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+  display: flex;
+  align-items: center;
+  gap: var(--sv-space-1);
+  transition: color var(--sv-transition-fast),
+              border-color var(--sv-transition-fast),
+              background var(--sv-transition-fast);
+}
+
+.tab:active {
+  background: color-mix(in srgb, var(--sv-accent) 10%, transparent);
+}
+
+.tabActive {
+  color: var(--sv-accent);
+  border-color: var(--sv-accent);
+  background: color-mix(in srgb, var(--sv-accent) 8%, transparent);
+}
+
+.tabIcon {
+  font-size: 12px;
+  line-height: 1;
+}
+
+/* Command list */
+.commands {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 var(--sv-space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sv-space-1);
+}
+
+.cmdBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--sv-space-3);
+  background: var(--sv-terminal-bg);
+  border: 1px solid var(--sv-chrome-border);
+  border-radius: var(--sv-radius-sm);
+  padding: var(--sv-space-3);
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+  text-align: left;
+  min-height: var(--sv-touch-min);
+  transition: transform var(--sv-transition-fast),
+              background var(--sv-transition-fast);
+}
+
+.cmdBtn:active {
+  transform: scale(0.97);
+  background: var(--sv-chrome-border);
+}
+
+/* Label + description stacked */
+.cmdInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.cmdLabel {
+  font-family: var(--sv-font-mono);
+  font-size: var(--sv-font-size-sm);
+  font-weight: 600;
+  color: var(--sv-chrome-fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cmdDesc {
+  font-family: var(--sv-font-mono);
+  font-size: var(--sv-font-size-xs);
+  color: var(--sv-chrome-subtle);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Badge: auto-run commands */
+.cmdRun {
+  font-family: var(--sv-font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--sv-accent);
+  background: color-mix(in srgb, var(--sv-accent) 15%, transparent);
+  border-radius: 3px;
+  padding: 2px 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+
+/* Badge: commands that insert text for editing */
+.cmdEdit {
+  font-family: var(--sv-font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--sv-warning);
+  background: color-mix(in srgb, var(--sv-warning) 15%, transparent);
+  border-radius: 3px;
+  padding: 2px 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}

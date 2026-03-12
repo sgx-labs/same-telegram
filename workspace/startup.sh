@@ -5,29 +5,81 @@
 # the workspace server. Designed to be idempotent — safe to run on every
 # container start, not just the first time.
 
-set -euo pipefail
+set -uo pipefail
+# Note: we intentionally do NOT use 'set -e'. Individual persist_dir /
+# persist_file calls should be non-fatal — a symlink race or permission
+# glitch must not prevent the workspace server from starting.
 
 VAULT_PATH="${VAULT_PATH:-/data/vault}"
 SAME_HOME="${SAME_HOME:-/data}"
 
-# --- Claude Code config persistence ---
-# Claude Code stores auth credentials, settings, and MCP config in ~/.claude/.
-# We symlink it to the persistent volume so logins (claude auth login) and
-# config survive container restarts. Without this, users have to re-auth
-# every time their machine stops and starts.
-CLAUDE_DIR="$HOME/.claude"
-CLAUDE_DATA="/data/.claude"
-if [ ! -L "$CLAUDE_DIR" ]; then
-    mkdir -p "$CLAUDE_DATA"
-    # Preserve any config from the Docker image (e.g., Dockerfile-created dir).
-    if [ -d "$CLAUDE_DIR" ]; then
-        cp -a "$CLAUDE_DIR/." "$CLAUDE_DATA/" 2>/dev/null || true
-        rm -rf "$CLAUDE_DIR"
-    fi
-    ln -s "$CLAUDE_DATA" "$CLAUDE_DIR"
-    echo "Claude Code config linked to persistent volume."
-fi
+# --- Home directory persistence ---
+# Key directories under /home/workspace are symlinked to /data/home/ so that
+# user data (Claude config, shell history, project files) survives image
+# updates. The persistent volume at /data is preserved across machine updates;
+# the container filesystem is not.
+DATA_HOME="/data/home"
+mkdir -p "$DATA_HOME"
 
+# persist_dir SRC_NAME
+#   Ensures /data/home/<SRC_NAME> exists, migrates any existing data from
+#   $HOME/<SRC_NAME>, and replaces it with a symlink to the persistent copy.
+persist_dir() {
+    local name="$1"
+    local src="$HOME/$name"
+    local dst="$DATA_HOME/$name"
+
+    # Already symlinked — nothing to do.
+    if [ -L "$src" ]; then
+        return
+    fi
+
+    mkdir -p "$dst"
+
+    # Migrate existing data from the image into the persistent location.
+    if [ -d "$src" ]; then
+        cp -a "$src/." "$dst/" 2>/dev/null || true
+        rm -rf "$src"
+    fi
+
+    ln -s "$dst" "$src"
+}
+
+# persist_file SRC_NAME
+#   Same as persist_dir but for individual files (e.g., .bash_history).
+persist_file() {
+    local name="$1"
+    local src="$HOME/$name"
+    local dst="$DATA_HOME/$name"
+
+    if [ -L "$src" ]; then
+        return
+    fi
+
+    # Migrate existing file content.
+    if [ -f "$src" ] && [ ! -f "$dst" ]; then
+        cp -a "$src" "$dst" 2>/dev/null || true
+    fi
+
+    # Create the file on the volume if it doesn't exist yet.
+    touch "$dst"
+
+    # Replace with symlink.
+    rm -f "$src"
+    ln -s "$dst" "$src"
+}
+
+persist_dir  ".claude"   || echo "WARNING: failed to persist .claude (non-fatal)"
+persist_dir  "projects"  || echo "WARNING: failed to persist projects (non-fatal)"
+persist_file ".bash_history" || echo "WARNING: failed to persist .bash_history (non-fatal)"
+
+# Ensure correct ownership on the persistent home tree.
+chown -R workspace:workspace "$DATA_HOME" 2>/dev/null || true
+
+echo "Home directories linked to persistent volume."
+
+# CLAUDE_DIR points to ~/.claude (now a symlink to /data/home/.claude).
+CLAUDE_DIR="$HOME/.claude"
 MCP_CONFIG="$CLAUDE_DIR/mcp.json"
 
 # --- Vault ---
@@ -78,11 +130,6 @@ if [ -f /data/.env ]; then
     set +a
     echo "Loaded API keys from /data/.env."
 fi
-
-# --- tmux ---
-# Ensure tmux server is running. The workspace-server will create the
-# actual session on first WebSocket connect.
-tmux start-server 2>/dev/null || true
 
 # --- Workspace server ---
 echo "Starting workspace server..."

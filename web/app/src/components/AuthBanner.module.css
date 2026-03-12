@@ -1,0 +1,109 @@
+.banner {
+  position: absolute;
+  top: 48px;
+  left: var(--sv-space-3);
+  right: var(--sv-space-3);
+  background: var(--sv-chrome-bg);
+  border: 1px solid var(--sv-accent);
+  border-radius: 12px;
+  padding: var(--sv-space-4);
+  z-index: var(--sv-z-overlay);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--sv-space-2);
+}
+
+.title {
+  font-family: var(--sv-font-mono);
+  font-size: var(--sv-font-size-lg);
+  font-weight: 700;
+  color: var(--sv-terminal-fg);
+}
+
+.closeBtn {
+  background: none;
+  border: none;
+  color: var(--sv-chrome-subtle);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  /* 44x44 minimum touch target per Apple HIG */
+  min-width: var(--sv-touch-min);
+  min-height: var(--sv-touch-min);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+  border-radius: var(--sv-radius-sm);
+  transition: background var(--sv-transition-fast);
+}
+
+.closeBtn:active {
+  background: var(--sv-chrome-border);
+}
+
+.hint {
+  font-family: var(--sv-font-mono);
+  font-size: var(--sv-font-size-sm);
+  color: var(--sv-hint);
+  margin-bottom: var(--sv-space-4);
+  line-height: 1.5;
+}
+
+.actions {
+  display: flex;
+  gap: var(--sv-space-3);
+}
+
+.primaryBtn {
+  flex: 1;
+  font-family: var(--sv-font-mono);
+  font-size: var(--sv-font-size-base);
+  font-weight: 600;
+  color: var(--sv-accent-text);
+  background: var(--sv-accent);
+  border: none;
+  border-radius: 8px;
+  padding: 12px 16px;
+  cursor: pointer;
+  min-height: var(--sv-touch-comfortable);
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity var(--sv-transition-fast),
+              transform var(--sv-transition-fast);
+}
+
+.primaryBtn:active {
+  opacity: 0.8;
+  transform: scale(0.97);
+}
+
+.secondaryBtn {
+  flex: 1;
+  font-family: var(--sv-font-mono);
+  font-size: var(--sv-font-size-base);
+  font-weight: 500;
+  color: var(--sv-terminal-fg);
+  background: var(--sv-terminal-bg);
+  border: 1px solid var(--sv-chrome-border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  cursor: pointer;
+  min-height: var(--sv-touch-comfortable);
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity var(--sv-transition-fast),
+              transform var(--sv-transition-fast);
+}
+
+.secondaryBtn:active {
+  opacity: 0.8;
+  transform: scale(0.97);
+}
+
+.secondaryBtn:disabled {
+  opacity: 0.5;
+}

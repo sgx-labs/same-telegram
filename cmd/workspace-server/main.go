@@ -13,8 +13,10 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
+	"github.com/sgx-labs/same-telegram/internal/analytics"
 	"github.com/sgx-labs/same-telegram/internal/workspace"
 )
 
@@ -28,6 +30,15 @@ func main() {
 	defer cancel()
 
 	srv := workspace.NewServer(*addr, *token, *shell)
+
+	// Initialize analytics store (non-fatal — server works without it).
+	analyticsPath := envOr("ANALYTICS_DB", filepath.Join(os.TempDir(), "workspace-analytics.db"))
+	if a, err := analytics.New(analyticsPath); err != nil {
+		log.Printf("Analytics disabled: %v", err)
+	} else {
+		srv.Analytics = a
+		log.Printf("Analytics enabled: %s", analyticsPath)
+	}
 
 	log.Printf("starting workspace server on %s (shell=%s)", *addr, *shell)
 	if err := srv.Run(ctx); err != nil {

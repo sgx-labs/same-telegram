@@ -5,8 +5,11 @@ primary_region = "iad"
   dockerfile = "Dockerfile.workspace"
 
 # This app doesn't run machines directly — machines are created
-# on-demand via the Machines API from the bot. This config just
-# builds and pushes the image to the registry.
+# on-demand per-user via the Fly Machines API from the bot.
+#
+# Deploy with: fly deploy -c fly.workspace.toml --build-only
+# This builds and pushes the image to the registry without creating machines.
+# Do NOT run plain "fly deploy" — it will create unwanted app-level machines.
 
 [env]
   VAULT_PATH = "/data/vault"

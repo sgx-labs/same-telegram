@@ -19,6 +19,9 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },
+  "overrides": {
+    "valibot": "^1.2.0"
+  },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
     "@types/node": "^24.10.1",
